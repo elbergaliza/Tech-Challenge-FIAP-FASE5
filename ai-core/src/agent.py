@@ -1,9 +1,9 @@
 """
 AGENTE DE IA — Lógica de Conversa e Qualificação
-Versão Google Gemini (GRATUITA)
+Versão Google Gemini (SDK Oficial `google-genai`)
 Pessoa 1 do Hackathon FIAP
 
-Este módulo implementa o agente SDR usando Google Gemini (gratuito):
+Este módulo implementa o agente SDR usando Google Gemini:
 1. Chama Google Gemini API para gerar respostas humanizadas
 2. Extrai dados da conversa com regex
 3. Avalia qualificação do lead
@@ -12,19 +12,29 @@ Este módulo implementa o agente SDR usando Google Gemini (gratuito):
 
 import os
 import re
-import google.generativeai as genai
+from typing import Optional
+from google import genai
 from typing import Optional
 from dotenv import load_dotenv
 
-# Carregar variáveis de ambiente
+# Tenta carregar do .env local
 load_dotenv()
 
-# Inicializar Gemini
+# Tenta pegar a chave do ambiente local ou do Colab Secrets
 api_key = os.getenv("GEMINI_API_KEY")
-if not api_key:
-    raise ValueError("GEMINI_API_KEY não encontrada no .env")
 
-genai.configure(api_key=api_key)
+if not api_key:
+    try:
+        from google.colab import userdata
+        api_key = userdata.get('GEMINI_API_KEY')
+    except ImportError:
+        pass
+
+if not api_key:
+    raise ValueError("GEMINI_API_KEY não encontrada. Adicione nos Secrets do Colab ou no arquivo .env.")
+
+# Inicializa o cliente com a API Key encontrada
+client = genai.Client(api_key=api_key)
 
 # ============================================================================
 # SYSTEM PROMPT (Persona do SDR)
@@ -111,31 +121,18 @@ def chamar_agente(
 ) -> dict:
     """
     Chama o Google Gemini e retorna resposta + dados extraídos.
-    
-    Args:
-        mensagem_usuario: str - Mensagem do cliente
-        historico: list - Histórico de mensagens [{"role": "user", "content": "..."}, ...]
-        lead_id: str - ID do lead (para logging)
-    
-    Returns:
-        dict com:
-            - resposta: str (o que o agente diz para o cliente)
-            - dados_coletados: dict (estrutura de dados extraída)
-            - status_qualificacao: str (em_andamento/qualificado/descartado)
-            - extracoes_completas: list (campos que foram preenchidos)
-            - confianca: float (0.0-1.0, percentual de confiança na extração)
     """
     
     print(f"[LOG] Processando mensagem do lead {lead_id}...")
     
     try:
-        # 1. CHAMAR GEMINI
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        
-        # Construir prompt com histórico
+        # 1. CHAMAR GEMINI (Nova sintaxe do cliente)
         prompt_completo = _construir_prompt_com_historico(mensagem_usuario, historico)
         
-        response = model.generate_content(prompt_completo)
+        response = client.models.generate_content(
+            model='gemini-3.6-flash',
+            contents=prompt_completo
+        )
         resposta_texto = response.text
         
     except Exception as e:
@@ -191,7 +188,7 @@ def _construir_prompt_com_historico(mensagem_usuario: str, historico: list) -> s
     """Constrói prompt com contexto de histórico para o Gemini"""
     
     historico_texto = ""
-    for msg in historico[-10:]:  # Últimas 10 mensagens para contexto
+    for msg in historico[-10:]:
         role = "Cliente" if msg["role"] == "user" else "Você (Agente)"
         historico_texto += f"\n{role}: {msg['content']}"
     
@@ -213,13 +210,7 @@ Responda como um SDR imobiliário. Seja breve (máximo 3 linhas)."""
 # ============================================================================
 
 def extrair_dados_estruturados(texto: str) -> dict:
-    """
-    Extrai dados estruturados da conversa usando padrões regex.
-    
-    Retorna dict com 8 campos, todos "undefined" se não encontrados.
-    """
-    
-    # Converter para lowercase para matching case-insensitive
+    """Extrai dados estruturados da conversa usando padrões regex."""
     texto_lower = texto.lower()
     
     return {
@@ -229,21 +220,21 @@ def extrair_dados_estruturados(texto: str) -> dict:
         "regiao": extrair_regiao(texto_lower),
         "quartos": extrair_quartos(texto_lower),
         "urgencia": extrair_urgencia(texto_lower),
-        "email": extrair_email(texto),  # Email é case-sensitive
+        "email": extrair_email(texto),
         "telefone": extrair_telefone(texto)
     }
 
 
 # ============================================================================
-# FUNÇÕES DE EXTRAÇÃO (REGEX) - IDÊNTICAS AO CÓDIGO ANTERIOR
+# FUNÇÕES DE EXTRAÇÃO (REGEX)
 # ============================================================================
 
 def extrair_nome(texto: str) -> str:
     """Extrai nome usando padrões como 'meu nome é X' ou 'sou X'"""
     patterns = [
-        r"(?:meu )?nome (?:é|e) ([A-Z][a-záéíóú\s]+?)(?:\.|,|$)",
-        r"(?:eu )?sou ([A-Z][a-záéíóú\s]+?)(?:\.|,|$)",
-        r"chamo.?me ([A-Z][a-záéíóú\s]+?)(?:\.|,|$)"
+        r"(?:meu )?nome (?:é|e) ([a-záéíóúâêôãõç\s]+?)(?:\.|,|$)",
+        r"(?:eu )?sou ([a-záéíóúâêôãõç\s]+?)(?:\.|,|$)",
+        r"chamo.?me ([a-záéíóúâêôãõç\s]+?)(?:\.|,|$)"
     ]
     
     for pattern in patterns:
@@ -251,20 +242,16 @@ def extrair_nome(texto: str) -> str:
         if match:
             nome = match.group(1).strip()
             palavras = nome.split()
-            return palavras[0] if palavras else "undefined"
+            # Retorna a primeira palavra com a inicial maiúscula (ex: "joão" -> "João")
+            return palavras[0].capitalize() if palavras else "undefined"
     
     return "undefined"
 
 
 def extrair_intencao(texto: str) -> str:
-    """Identifica se é COMPRA, ALUGUEL ou INVESTIMENTO"""
-    
-    keywords_compra = ["comprar", "compra", "adquirir", "vou comprar", 
-                       "estou procurando comprar", "quero comprar"]
-    keywords_aluguel = ["alugar", "aluguel", "alugando", "para alugar",
-                        "procuro para alugar", "vou alugar", "quero alugar"]
-    keywords_investimento = ["investir", "investimento", "renda", "rentabilidade",
-                            "retorno", "para investir", "vou investir"]
+    keywords_compra = ["comprar", "compra", "adquirir", "vou comprar", "estou procurando comprar", "quero comprar"]
+    keywords_aluguel = ["alugar", "aluguel", "alugando", "para alugar", "procuro para alugar", "vou alugar", "quero alugar"]
+    keywords_investimento = ["investir", "investimento", "renda", "rentabilidade", "retorno", "para investir", "vou investir"]
     
     pontuacao_compra = sum(1 for kw in keywords_compra if kw in texto)
     pontuacao_aluguel = sum(1 for kw in keywords_aluguel if kw in texto)
@@ -284,7 +271,6 @@ def extrair_intencao(texto: str) -> str:
 
 def extrair_regiao(texto: str) -> str:
     """Extrai região procurando por menções de localidades"""
-    
     regioes_conhecidas = [
         "zona sul", "zona norte", "zona leste", "zona oeste",
         "centro", "barra", "leblon", "copacabana", "ipanema",
@@ -292,22 +278,19 @@ def extrair_regiao(texto: str) -> str:
         "lagoa", "vidigal", "santa teresa", "saúde", "glória"
     ]
     
+    texto_lower = texto.lower()
     for regiao in regioes_conhecidas:
-        if regiao in texto:
+        if regiao in texto_lower:
             return regiao.title()
     
     return "undefined"
 
 
 def extrair_preco(texto: str) -> str:
-    """Extrai faixa de preço (ex: '500k-800k' ou '1.5m')"""
-    
     pattern = r"(\d+(?:[.,]\d+)?)\s*[kmK]"
     matches = re.findall(pattern, texto)
-    
     if not matches:
         return "undefined"
-    
     if len(matches) >= 2:
         valores_unicos = list(set(matches[:2]))
         return f"{valores_unicos[0]}k-{valores_unicos[1]}k"
@@ -316,27 +299,20 @@ def extrair_preco(texto: str) -> str:
 
 
 def extrair_quartos(texto: str) -> str:
-    """Extrai número de quartos (ex: '3 quartos', 'T2', etc)"""
-    
     patterns = [
         r"(\d+)\s*(?:quartos?|qto|bedroom|bedrooms|beds?)",
         r"[tT](\d+)",
         r"(\d+)\s*(?:dorms?|dormitórios?)"
     ]
-    
     for pattern in patterns:
         match = re.search(pattern, texto, re.IGNORECASE)
         if match:
             return match.group(1)
-    
     return "undefined"
 
 
 def extrair_urgencia(texto: str) -> str:
-    """Classifica urgência em: alta, media, baixa"""
-    
-    urgencias_alta = ["urgente", "rápido", "logo", "já", "essa semana", 
-                      "muito urgente", "preciso rápido", "urgência"]
+    urgencias_alta = ["urgente", "rápido", "logo", "já", "essa semana", "muito urgente", "preciso rápido", "urgência"]
     urgencias_media = ["logo", "breve", "próximos meses", "em poucos meses"]
     
     pontuacao_alta = sum(1 for kw in urgencias_alta if kw in texto)
@@ -351,28 +327,22 @@ def extrair_urgencia(texto: str) -> str:
 
 
 def extrair_email(texto: str) -> str:
-    """Extrai email (padrão: email@dominio.com)"""
-    
     pattern = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
     match = re.search(pattern, texto)
     return match.group(0) if match else "undefined"
 
 
 def extrair_telefone(texto: str) -> str:
-    """Extrai telefone brasileiro"""
-    
     patterns = [
         r"\(?(\d{2})\)?[\s-]?(\d{4,5})[\s-]?(\d{4})",
         r"\+55\s?(\d{2})\s?(\d{4,5})[\s-]?(\d{4})"
     ]
-    
     for pattern in patterns:
         match = re.search(pattern, texto)
         if match:
             grupos = match.groups()
             if len(grupos) >= 3:
                 return f"({grupos[0]}) {grupos[1]}-{grupos[2]}"
-    
     return "undefined"
 
 
@@ -381,11 +351,7 @@ def extrair_telefone(texto: str) -> str:
 # ============================================================================
 
 def avaliar_status_qualificacao(dados: dict) -> str:
-    """Define status com base nos dados coletados"""
-    
-    campos_preenchidos = sum(1 for k, v in dados.items() 
-                            if v and v != "undefined" and v != "")
-    
+    campos_preenchidos = sum(1 for k, v in dados.items() if v and v != "undefined" and v != "")
     if campos_preenchidos >= 4:
         return "qualificado"
     elif campos_preenchidos >= 2:
@@ -395,12 +361,8 @@ def avaliar_status_qualificacao(dados: dict) -> str:
 
 
 def calcular_confianca(dados: dict) -> float:
-    """Calcula confiança percentual da extração (0.0 a 1.0)"""
-    
     total_campos = len(dados)
-    campos_preenchidos = sum(1 for k, v in dados.items() 
-                            if v and v != "undefined" and v != "")
-    
+    campos_preenchidos = sum(1 for k, v in dados.items() if v and v != "undefined" and v != "")
     return round(campos_preenchidos / total_campos, 2) if total_campos > 0 else 0.0
 
 
@@ -413,8 +375,6 @@ if __name__ == "__main__":
     print("🧪 Teste Rápido do Agente de IA (GEMINI)")
     print("=" * 70)
     
-    # Teste 1: Conversa COMPRA
-    print("\n📝 Teste 1: Cliente procurando COMPRA")
     msg1 = "Oi! Estou procurando comprar um apartamento na zona sul"
     resp1 = chamar_agente(msg1, [])
     
@@ -423,8 +383,6 @@ if __name__ == "__main__":
     print(f"Status: {resp1['status_qualificacao']}")
     print(f"Confiança: {resp1['confianca']:.0%}")
     
-    # Teste 2: Adicionar mais informações
-    print("\n📝 Teste 2: Cliente detalha mais")
     historico = [
         {"role": "user", "content": msg1},
         {"role": "assistant", "content": resp1['resposta']}
@@ -433,6 +391,7 @@ if __name__ == "__main__":
     msg2 = "Meu orçamento é 500k a 800k, preciso de 3 quartos, é urgente!"
     resp2 = chamar_agente(msg2, historico)
     
+    print("\n" + "-" * 40)
     print(f"Cliente: {msg2}")
     print(f"Agente: {resp2['resposta']}")
     print(f"Status: {resp2['status_qualificacao']}")
