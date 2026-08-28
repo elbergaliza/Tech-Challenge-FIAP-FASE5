@@ -1,0 +1,6 @@
+# O caminho local do modulo (HashingEmbedder) roda com a biblioteca padrao do
+# Python, sem nada instalado. Os testes tambem.
+#
+# Estas dependencias sao necessarias APENAS para embeddings semanticos reais
+# via Gemini (--embedder gemini):
+google-genai>=2.21.1

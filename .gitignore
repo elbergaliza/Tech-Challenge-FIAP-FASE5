@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Indice derivado: reconstruivel com "python -m src.rag.indexer"
+ai-memory-rag/data/index/
