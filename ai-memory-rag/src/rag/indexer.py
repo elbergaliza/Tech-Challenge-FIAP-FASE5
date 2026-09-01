@@ -16,11 +16,12 @@ Linha de comando:
     python -m src.rag.indexer --embedder hashing # força o caminho offline
 """
 
+import hashlib
 import json
 import os
 
 from . import schema
-from .embeddings import cosine, get_embedder, load_env
+from .embeddings import HashingEmbedder, cosine, get_embedder, load_env
 
 # Caminhos relativos à raiz do repositório.
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -70,7 +71,8 @@ def build_search_text(prop):
 class Index:
     """Índice em memória. Pequeno de propósito: a base tem dezenas de itens."""
 
-    def __init__(self, embedder_name, dim, documents, vectors, version=INDEX_VERSION):
+    def __init__(self, embedder_name, dim, documents, vectors, version=INDEX_VERSION,
+                 source_hash=None):
         if len(documents) != len(vectors):
             raise ValueError("documents e vectors com tamanhos diferentes")
 
@@ -79,6 +81,9 @@ class Index:
         self.documents = documents
         self.vectors = vectors
         self.version = version
+        # Impressão digital da base que gerou estes vetores. É o que permite
+        # detectar que `imoveis.json` mudou e o índice em disco ficou velho.
+        self.source_hash = source_hash
         self._by_id = {d["id"]: d for d in documents}
 
     def __len__(self):
@@ -127,6 +132,7 @@ class Index:
             "embedder": self.embedder_name,
             "dim": self.dim,
             "total": len(self.documents),
+            "source_hash": self.source_hash,
             "documents": self.documents,
             # 6 casas decimais bastam para cosseno e cortam o arquivo em ~40%.
             "vectors": [[round(v, 6) for v in vector] for vector in self.vectors],
@@ -140,6 +146,7 @@ class Index:
             documents=data["documents"],
             vectors=data["vectors"],
             version=data.get("version", INDEX_VERSION),
+            source_hash=data.get("source_hash"),
         )
 
 
@@ -171,6 +178,22 @@ def load_properties(path=None):
     return properties
 
 
+def properties_hash(properties):
+    """Impressão digital estável da base indexada.
+
+    Só entra o que muda o vetor: o id e o texto de busca. Assim, editar um
+    campo que não é indexado não invalida o índice inteiro à toa.
+    """
+    digest = hashlib.blake2b(digest_size=16)
+    for prop in properties:
+        digest.update(str(prop.get("id", "")).encode("utf-8"))
+        digest.update(b"|")
+        digest.update(build_search_text(prop).encode("utf-8"))
+        digest.update(b"\n")
+
+    return digest.hexdigest()
+
+
 def build_index(properties, embedder):
     texts = [build_search_text(prop) for prop in properties]
     vectors = embedder.embed_documents(texts)
@@ -180,6 +203,7 @@ def build_index(properties, embedder):
         dim=len(vectors[0]) if vectors else embedder.dim,
         documents=list(properties),
         vectors=vectors,
+        source_hash=properties_hash(properties),
     )
 
 
@@ -203,6 +227,62 @@ def load_index(path=None):
 
     with open(path, "r", encoding="utf-8") as handle:
         return Index.from_dict(json.load(handle))
+
+
+def get_index(embedder, properties=None, index_path=None, fallback=True):
+    """Devolve um índice utilizável, reaproveitando o disco sempre que der.
+
+    Existe porque `build_index` custa uma chamada de API por imóvel. Chamá-lo a
+    cada inicialização, como o runner fazia, torra a cota do plano gratuito em
+    uma execução e derruba o processo. O índice só é reconstruído quando o
+    embedder, a dimensão, a versão do formato ou a própria base mudam.
+
+    Com `fallback`, uma falha ao construir com o Gemini (cota, rede, chave) cai
+    para o índice lexical offline em vez de matar o processo. O RAG continua
+    respondendo; o que piora é a qualidade semântica, e isso é dito em voz alta.
+    """
+    properties = properties if properties is not None else load_properties()
+    esperado = properties_hash(properties)
+
+    try:
+        cached = load_index(index_path)
+    except (FileNotFoundError, KeyError, ValueError, json.JSONDecodeError):
+        cached = None
+
+    if cached is not None and _cache_serve(cached, embedder, esperado):
+        return cached, "cache"
+
+    try:
+        index = build_index(properties, embedder)
+    except Exception as error:
+        if not fallback or isinstance(embedder, HashingEmbedder):
+            raise
+
+        print("[rag] Falha ao indexar com %s: %s" % (embedder.name, _uma_linha(error)))
+        print("[rag] Reindexando offline com HashingEmbedder.")
+        index = build_index(properties, HashingEmbedder())
+
+    save_index(index, index_path)
+    return index, "rebuild"
+
+
+def _cache_serve(cached, embedder, esperado):
+    """O índice em disco pode ser usado com este embedder e esta base?"""
+    if cached.version != INDEX_VERSION:
+        return False
+    if cached.embedder_name != embedder.name:
+        return False
+    # Índices gravados antes do `source_hash` existir não têm como ser
+    # validados; reconstruir uma vez é mais barato que servir vetor errado.
+    if cached.source_hash != esperado:
+        return False
+
+    return True
+
+
+def _uma_linha(error):
+    texto = str(error).strip().replace("\n", " ")
+    return texto[:160] + ("..." if len(texto) > 160 else "")
 
 
 def reindex(embedder=None, properties_path=None, index_path=None):

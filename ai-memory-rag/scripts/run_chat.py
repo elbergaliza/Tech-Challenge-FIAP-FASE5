@@ -55,7 +55,9 @@ from memory.conversation_memory import (                                 # noqa:
 )
 from privacy import mask_for_log                                         # noqa: E402
 from rag import indexer, retriever, schema                               # noqa: E402
-from rag.embeddings import get_embedder, load_env, normalize             # noqa: E402
+from rag.embeddings import (                                             # noqa: E402
+    HashingEmbedder, get_embedder, load_env, normalize,
+)
 from summarizer import Summarizer                                        # noqa: E402
 
 DATA_DIR = os.path.join(HERE, "..", "data", "conversas")
@@ -198,9 +200,25 @@ def mostrar_perfil(memory, lead_id):
             print("  %-16s %s" % (FIELD_LABELS[campo] + ":", profile[campo]))
 
 
+def buscar_sem_quebrar(fn, *args, **kwargs):
+    """Roda uma busca e devolve [] se a camada de embedding falhar.
+
+    O chat e a unica forma de demonstrar a Parte 2 enquanto nao existe backend.
+    Uma cota estourada no meio de uma conversa nao pode derrubar a sessao e
+    levar junto a memoria do turno.
+    """
+    try:
+        return fn(*args, **kwargs)
+    except Exception as error:
+        texto = str(error).strip().replace(chr(10), " ")
+        print("[rag] Busca indisponivel: %s" % (texto[:140],))
+        return []
+
+
 def mostrar_imoveis(index, embedder, memory, lead_id, mensagem):
-    resultado = retriever.search_for_lead(
-        index, memory.profile(lead_id), mensagem, embedder=embedder, top_k=3
+    resultado = buscar_sem_quebrar(
+        retriever.search_for_lead,
+        index, memory.profile(lead_id), mensagem, embedder=embedder, top_k=3,
     )
     memory.record_shown_properties(lead_id, [r.id for r in resultado])
     print(retriever.format_for_prompt(resultado))
@@ -225,7 +243,15 @@ def main():
     lead_id = argumentos[0] if argumentos else "lead-terminal"
 
     embedder = get_embedder(prefer="hashing" if forcar_simulado else None)
-    index = indexer.build_index(indexer.load_properties(), embedder)
+    # `get_index` e nao `build_index`: indexar custa uma chamada de API por
+    # imovel, e reconstruir os 140 a cada inicializacao estourava a cota do
+    # plano gratuito antes mesmo da primeira mensagem. O indice fica em disco
+    # e so e refeito quando o embedder ou a base mudam.
+    index, origem = indexer.get_index(embedder, indexer.load_properties())
+    # O embedder pode ter mudado no caminho: se o Gemini falhou ao indexar, o
+    # `get_index` cai para o lexical, e o cabecalho precisa dizer a verdade.
+    if index.embedder_name != embedder.name:
+        embedder = HashingEmbedder()
     client = get_client("unavailable" if forcar_simulado else None)
     summarizer = Summarizer(client=client)
     gerador = FollowUpGenerator(client=client)
@@ -253,7 +279,8 @@ def main():
     print("agente:    %s" % rotulo_agente)
     print("resumo:    %s" % (client.name if client.available
                              else "heurístico (sem LLM)"))
-    print("embedder:  %s  ·  %d imóveis indexados" % (embedder.name, len(index)))
+    print("embedder:  %s  ·  %d imóveis indexados (%s)"
+          % (embedder.name, len(index), "cache" if origem == "cache" else "recém-indexado"))
     print("memória:   %s" % os.path.normpath(DATA_DIR))
 
     if memory.exists(lead_id):
@@ -383,10 +410,11 @@ def main():
         busca = None
         bloco_imoveis = ""
         if vale_buscar:
-            busca = retriever.search_for_lead(
-                index, perfil, entrada, embedder=embedder, top_k=3
+            busca = buscar_sem_quebrar(
+                retriever.search_for_lead,
+                index, perfil, entrada, embedder=embedder, top_k=3,
             )
-            bloco_imoveis = retriever.format_for_prompt(busca)
+            bloco_imoveis = retriever.format_for_prompt(busca) if busca else ""
 
         # A Pessoa 1 ainda não aceita `contexto_extra`, então o contexto vai
         # prefixado na mensagem. É contorno temporário: com o parâmetro, isto

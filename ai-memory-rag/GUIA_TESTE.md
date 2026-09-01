@@ -219,12 +219,39 @@ lá de propósito, então funciona rodando de qualquer pasta.
 python ai-memory-rag/scripts/run_chat.py marcos-real
 ```
 
-Agora o cabeçalho deve mostrar:
+**Na primeira vez isto demora cerca de um minuto**, e o script avisa:
+
+```
+[rag] Cota por minuto quase no limite. Aguardando 58s...
+```
+
+Não é travamento. O plano gratuito permite 100 requisições de embedding por
+minuto e a base tem 140 imóveis, então indexar tudo de uma vez estoura a cota.
+O script segura as chamadas para caber na janela.
+
+O índice fica salvo em `ai-memory-rag/data/index/`, então isso acontece **uma
+vez só**. Nas execuções seguintes o cabeçalho diz `(cache)` e nenhuma chamada
+de embedding é feita.
+
+Cabeçalho da primeira vez:
 
 ```
 agente:    Pessoa 1 + Gemini
 resumo:    gemini-2.5-flash
-embedder:  gemini-embedding-001  ·  140 imóveis indexados
+embedder:  gemini-embedding-001  ·  140 imóveis indexados (recém-indexado)
+```
+
+E das seguintes:
+
+```
+embedder:  gemini-embedding-001  ·  140 imóveis indexados (cache)
+```
+
+O índice é refeito sozinho quando o embedder muda ou quando `imoveis.json`
+muda; a validação usa uma impressão digital da base. Para forçar na mão:
+
+```bash
+rm ai-memory-rag/data/index/imoveis_index.json
 ```
 
 Três coisas mudam de verdade:
@@ -258,6 +285,8 @@ módulo funciona igual nos dois casos; o que muda é a qualidade do texto.
 | Agente responde *"Desculpe, tive um problema técnico"* | chave inválida **ou** model id inexistente |
 | `ERROR: Could not find an activated virtualenv` | o `.venv` não está ativo nesta janela (passo 1) |
 | `[rag] Gemini indisponível (400 INVALID_ARGUMENT...)` | chave errada; o RAG segue no embedder offline |
+| `[rag] Cota por minuto quase no limite. Aguardando 58s...` | normal na primeira indexação; espere |
+| `[rag] Falha ao indexar com gemini-embedding-001` | cota do dia esgotada; o RAG cai para o índice offline e continua |
 
 O último é o mais provável. O `agent.py` usa `gemini-3.6-flash`, e não consegui
 confirmar que esse id existe. Dá para testar trocando o id direto no `agent.py`,

@@ -14,7 +14,9 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 
 MODULE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -264,8 +266,295 @@ def _sem_acento(text):
     return "".join(c for c in decomposto if not unicodedata.combining(c))
 
 
+# ---------------------------------------------------------------------------
+
+
+class _EmbedderContador(object):
+    """Embedder que conta quantos textos foram embedados de verdade."""
+
+    name = "contador-v1"
+    dim = 8
+
+    def __init__(self):
+        self.textos = 0
+        self.chamadas = 0
+
+    def embed_documents(self, texts):
+        self.textos += len(texts)
+        self.chamadas += 1
+        return [self.embed_query(t) for t in texts]
+
+    def embed_query(self, text):
+        vetor = [0.0] * self.dim
+        for i, ch in enumerate(text[:self.dim]):
+            vetor[i] = (ord(ch) % 17) / 17.0
+        return vetor
+
+
+class TestIndexCache(unittest.TestCase):
+    """Indexar custa uma chamada de API por imovel.
+
+    Reconstruir a base inteira a cada inicializacao estourava a cota do plano
+    gratuito do Gemini antes da primeira mensagem do lead. `get_index` existe
+    para que esse custo seja pago uma vez so.
+    """
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.caminho = os.path.join(self.dir, "index.json")
+        self.props = indexer.load_properties()[:12]
+
+    def test_second_call_does_not_embed_again(self):
+        primeiro = _EmbedderContador()
+        index, origem = indexer.get_index(primeiro, self.props, self.caminho)
+        self.assertEqual(origem, "rebuild")
+        self.assertEqual(primeiro.textos, 12)
+
+        segundo = _EmbedderContador()
+        index2, origem2 = indexer.get_index(segundo, self.props, self.caminho)
+        self.assertEqual(origem2, "cache")
+        self.assertEqual(segundo.textos, 0, "nao pode chamar a API de novo")
+        self.assertEqual(len(index2), len(index))
+
+    def test_changing_the_base_invalidates_the_cache(self):
+        indexer.get_index(_EmbedderContador(), self.props, self.caminho)
+
+        alterados = [dict(p) for p in self.props]
+        alterados[0]["description"] = alterados[0]["description"] + " com vista"
+
+        terceiro = _EmbedderContador()
+        _, origem = indexer.get_index(terceiro, alterados, self.caminho)
+        self.assertEqual(origem, "rebuild")
+        self.assertEqual(terceiro.textos, 12)
+
+    def test_changing_the_embedder_invalidates_the_cache(self):
+        indexer.get_index(_EmbedderContador(), self.props, self.caminho)
+
+        outro = HashingEmbedder()
+        index, origem = indexer.get_index(outro, self.props, self.caminho)
+        self.assertEqual(origem, "rebuild")
+        self.assertEqual(index.embedder_name, outro.name)
+
+    def test_corrupt_index_file_is_rebuilt_not_fatal(self):
+        with io.open(self.caminho, "w", encoding="utf-8") as handle:
+            handle.write(u"{lixo")
+
+        _, origem = indexer.get_index(_EmbedderContador(), self.props, self.caminho)
+        self.assertEqual(origem, "rebuild")
+
+    def test_quota_failure_falls_back_to_offline_index(self):
+        # Foi exatamente isto que derrubou o run_chat.py: 429 no meio do
+        # build_index, traceback cru, processo morto.
+        class Estourado(object):
+            name = "gemini-embedding-001"
+            dim = 768
+
+            def embed_documents(self, texts):
+                raise RuntimeError("429 RESOURCE_EXHAUSTED. quota exceeded")
+
+            def embed_query(self, text):
+                raise RuntimeError("429 RESOURCE_EXHAUSTED. quota exceeded")
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            index, origem = indexer.get_index(Estourado(), self.props, self.caminho)
+
+        self.assertEqual(origem, "rebuild")
+        self.assertEqual(index.embedder_name, HashingEmbedder.name)
+        self.assertEqual(len(index), 12)
+        self.assertIn("429", buffer.getvalue())
+
+    def test_fallback_can_be_turned_off(self):
+        class Estourado(object):
+            name = "gemini-embedding-001"
+            dim = 768
+
+            def embed_documents(self, texts):
+                raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+        with self.assertRaises(RuntimeError):
+            indexer.get_index(Estourado(), self.props, self.caminho, fallback=False)
+
+
+class TestGeminiThrottle(unittest.TestCase):
+    """A cota do plano gratuito e por minuto, e a base tem 140 imoveis."""
+
+    def setUp(self):
+        # O throttle avisa por print quando segura a chamada. O aviso e
+        # desejado em producao, so nao no meio da saida dos testes.
+        silencio = contextlib.redirect_stdout(io.StringIO())
+        silencio.__enter__()
+        self.addCleanup(silencio.__exit__, None, None, None)
+
+    def _embedder(self, rpm, dormidas):
+        # Constroi sem passar pelo __init__, que exige chave e SDK instalado.
+        embedder = embeddings.GeminiEmbedder.__new__(embeddings.GeminiEmbedder)
+        embedder.rpm = rpm
+        embedder._sent = []
+        embedder._sleep = dormidas.append
+        return embedder
+
+    def test_stays_under_the_limit_by_waiting(self):
+        dormidas = []
+        embedder = self._embedder(90, dormidas)
+        relogio = [1000.0]
+
+        embedder._throttle(60, now=lambda: relogio[0])
+        self.assertEqual(dormidas, [], "60 de 90 nao precisa esperar")
+
+        embedder._throttle(60, now=lambda: relogio[0])
+        self.assertEqual(len(dormidas), 1, "120 num minuto tem que esperar")
+        self.assertGreater(dormidas[0], 59.0)
+
+    def test_a_full_window_later_does_not_wait(self):
+        dormidas = []
+        embedder = self._embedder(90, dormidas)
+        relogio = [1000.0]
+
+        embedder._throttle(80, now=lambda: relogio[0])
+        relogio[0] += 61.0
+        embedder._throttle(80, now=lambda: relogio[0])
+
+        self.assertEqual(dormidas, [], "a janela anterior ja expirou")
+
+    def test_zero_disables_the_throttle(self):
+        dormidas = []
+        embedder = self._embedder(0, dormidas)
+        embedder._throttle(10000, now=lambda: 1000.0)
+        self.assertEqual(dormidas, [])
+
+
+class TestGeminiCallDoesNotDoubleRequests(unittest.TestCase):
+    """Um erro de API nao pode disparar uma segunda requisicao identica.
+
+    O `except Exception` antigo existia para tolerar assinaturas antigas do
+    SDK, mas capturava erro de API tambem: um 429 gerava outro 429 na hora,
+    dobrando o consumo justamente quando a cota ja tinha acabado.
+    """
+
+    def _embedder(self):
+        embedder = embeddings.GeminiEmbedder.__new__(embeddings.GeminiEmbedder)
+        embedder.model = "fake"
+        embedder.dim = 4
+        return embedder
+
+    def test_api_error_is_raised_once(self):
+        tentativas = []
+
+        def chamada(chunk, config):
+            tentativas.append(config)
+            raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+        embedder = self._embedder()
+        embedder._call_once = chamada
+
+        with self.assertRaises(RuntimeError):
+            embedder._call(["a"], "RETRIEVAL_DOCUMENT")
+
+        self.assertEqual(len(tentativas), 1, "erro de API nao pode retentar aqui")
+
+    def test_signature_error_still_retries_without_config(self):
+        tentativas = []
+
+        class Valor(object):
+            values = [1.0, 0.0, 0.0, 0.0]
+
+        class Resposta(object):
+            embeddings = [Valor()]
+
+        def chamada(chunk, config):
+            tentativas.append(config)
+            if config is not None:
+                raise TypeError("unexpected keyword argument 'config'")
+            return Resposta()
+
+        embedder = self._embedder()
+        embedder._call_once = chamada
+
+        vetores = embedder._call(["a"], "RETRIEVAL_DOCUMENT")
+
+        self.assertEqual(len(tentativas), 2)
+        self.assertIsNone(tentativas[1])
+        self.assertEqual(len(vetores), 1)
+
+
+
 
 # ---------------------------------------------------------------------------
+
+
+class TestGeminiSkipsEmptyText(unittest.TestCase):
+    """Consulta em branco nao pode virar requisicao.
+
+    A API responde 400 "EmbedContentRequest.content contains an empty Part", e
+    o comando /imoveis sem argumento busca exatamente com consulta vazia. O
+    HashingEmbedder aceitava e devolvia vetor zero, entao o problema so
+    aparecia com o Gemini ligado.
+    """
+
+    def _embedder(self, enviados):
+        embedder = embeddings.GeminiEmbedder.__new__(embeddings.GeminiEmbedder)
+        embedder.model = "fake"
+        embedder.dim = 4
+        embedder.batch = 32
+        embedder.rpm = 0
+        embedder._sent = []
+        embedder._sleep = lambda s: None
+
+        def chamada(chunk, task_type):
+            enviados.extend(chunk)
+            return [[1.0, 0.0, 0.0, 0.0] for _ in chunk]
+
+        embedder._call = chamada
+        return embedder
+
+    def test_empty_query_never_reaches_the_api(self):
+        enviados = []
+        embedder = self._embedder(enviados)
+
+        vetor = embedder.embed_query("")
+
+        self.assertEqual(enviados, [], "string vazia nao pode ser enviada")
+        self.assertEqual(vetor, [0.0, 0.0, 0.0, 0.0])
+
+    def test_blank_query_never_reaches_the_api(self):
+        enviados = []
+        embedder = self._embedder(enviados)
+
+        embedder.embed_query("   ")
+
+        self.assertEqual(enviados, [])
+
+    def test_empty_entries_do_not_shift_the_others(self):
+        # O risco de filtrar e devolver os vetores fora de ordem.
+        enviados = []
+        embedder = self._embedder(enviados)
+
+        vetores = embedder.embed_documents(["", "casa", "  ", "apartamento"])
+
+        self.assertEqual(enviados, ["casa", "apartamento"])
+        self.assertEqual(len(vetores), 4)
+        self.assertEqual(vetores[0], [0.0, 0.0, 0.0, 0.0])
+        self.assertEqual(vetores[1], [1.0, 0.0, 0.0, 0.0])
+        self.assertEqual(vetores[2], [0.0, 0.0, 0.0, 0.0])
+        self.assertEqual(vetores[3], [1.0, 0.0, 0.0, 0.0])
+
+
+class TestEmptyQuerySearchStillWorks(unittest.TestCase):
+    """Buscar sem consulta textual e um caso valido, nao um erro."""
+
+    def test_search_with_empty_text_returns_properties(self):
+        embedder = HashingEmbedder()
+        props = indexer.load_properties()
+        index = indexer.build_index(props, embedder)
+
+        resultado = retriever.search_for_lead(
+            index, {"intent": "BUY", "region": "Botafogo"}, "", embedder=embedder,
+        )
+
+        self.assertGreater(len(resultado), 0,
+                           "sem texto, o ranking cai nos filtros e bonus")
 
 
 class TestParsers(unittest.TestCase):

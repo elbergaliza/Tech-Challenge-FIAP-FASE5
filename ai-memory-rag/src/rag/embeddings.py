@@ -28,6 +28,7 @@ import hashlib
 import math
 import os
 import re
+import time
 import unicodedata
 
 # ---------------------------------------------------------------------------
@@ -154,10 +155,18 @@ class GeminiEmbedder:
 
     name = "gemini-embedding-001"
 
-    def __init__(self, api_key=None, model="gemini-embedding-001", dim=768, batch=32):
+    def __init__(self, api_key=None, model="gemini-embedding-001", dim=768,
+                 batch=32, rpm=None, sleep=time.sleep):
         self.model = model
         self.dim = dim
         self.batch = batch
+        # O plano gratuito limita requisições de embedding por minuto. Contamos
+        # cada TEXTO como uma requisição, não cada lote: dependendo da versão o
+        # SDK expande uma lista em chamadas individuais, e errar essa conta
+        # para menos é justamente o que estoura a cota.
+        self.rpm = int(rpm if rpm is not None else os.getenv("GEMINI_EMBED_RPM", 90))
+        self._sleep = sleep
+        self._sent = []  # instantes das requisições da última janela
 
         api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not api_key:
@@ -170,37 +179,83 @@ class GeminiEmbedder:
         self._genai = genai
         self._client = genai.Client(api_key=api_key)
 
-    def _embed(self, texts, task_type):
-        vectors = []
+    def _throttle(self, amount, now=time.monotonic):
+        """Segura a chamada até caber na janela de um minuto.
 
-        for start in range(0, len(texts), self.batch):
-            chunk = texts[start:start + self.batch]
-            vectors.extend(self._call(chunk, task_type))
+        Sem isso, indexar a base inteira de uma vez estoura a cota do plano
+        gratuito e derruba a indexação no meio.
+        """
+        if self.rpm <= 0:
+            return
+
+        instant = now()
+        self._sent = [t for t in self._sent if instant - t < 60.0]
+
+        if len(self._sent) + amount > self.rpm and self._sent:
+            espera = 60.0 - (instant - self._sent[0]) + 0.5
+            if espera > 0:
+                print("[rag] Cota por minuto quase no limite. Aguardando %ds..."
+                      % round(espera))
+                self._sleep(espera)
+                instant = now()
+                self._sent = [t for t in self._sent if instant - t < 60.0]
+
+        self._sent.extend([instant] * amount)
+
+    def _embed(self, texts, task_type):
+        # Texto em branco nunca vai para a API. Ela responde
+        # "EmbedContentRequest.content contains an empty Part" com 400, e o
+        # `/imoveis` sem argumento busca justamente com consulta vazia. O vetor
+        # zero e a resposta certa: cosseno zero contra tudo, e o ranking passa
+        # a ser decidido so pelos filtros e bonus, que e o esperado quando o
+        # lead nao disse nada ainda.
+        cheios = [(i, t) for i, t in enumerate(texts) if str(t or "").strip()]
+        vectors = [[0.0] * self.dim for _ in texts]
+
+        for start in range(0, len(cheios), self.batch):
+            pedaco = cheios[start:start + self.batch]
+            self._throttle(len(pedaco))
+            calculados = self._call([t for _, t in pedaco], task_type)
+            for (indice, _), vetor in zip(pedaco, calculados):
+                vectors[indice] = vetor
 
         return vectors
 
     def _call(self, chunk, task_type):
         # Versões diferentes do google-genai aceitam o `config` de formas
         # diferentes. Tenta com task_type (melhor qualidade) e cai para a
-        # chamada mínima se o SDK instalado não suportar.
+        # chamada mínima se o SDK instalado não aceitar esses argumentos.
+        #
+        # O `except` é estreito de propósito. Antes ele capturava Exception, o
+        # que fazia um erro de API (cota estourada, chave inválida) disparar
+        # imediatamente uma SEGUNDA requisição idêntica: o dobro do consumo
+        # justamente quando a cota já acabou, e um traceback duplo escondendo
+        # a causa real atrás de "During handling of the above exception".
         try:
             from google.genai import types
 
-            response = self._client.models.embed_content(
-                model=self.model,
-                contents=chunk,
-                config=types.EmbedContentConfig(
-                    task_type=task_type,
-                    output_dimensionality=self.dim,
-                ),
+            config = types.EmbedContentConfig(
+                task_type=task_type,
+                output_dimensionality=self.dim,
             )
-        except Exception:
-            response = self._client.models.embed_content(
-                model=self.model,
-                contents=chunk,
-            )
+        except (ImportError, AttributeError, TypeError):
+            config = None
+
+        try:
+            response = self._call_once(chunk, config)
+        except TypeError:
+            # Assinatura incompatível: aí sim vale tentar a chamada mínima.
+            response = self._call_once(chunk, None)
 
         return [l2_normalize(list(e.values)) for e in response.embeddings]
+
+    def _call_once(self, chunk, config):
+        if config is None:
+            return self._client.models.embed_content(model=self.model, contents=chunk)
+
+        return self._client.models.embed_content(
+            model=self.model, contents=chunk, config=config,
+        )
 
     def embed_documents(self, texts):
         return self._embed(texts, "RETRIEVAL_DOCUMENT")

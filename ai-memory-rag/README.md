@@ -108,6 +108,36 @@ python ai-memory-rag/scripts/demo_rag.py --embedder gemini
 cd ai-memory-rag && python -m src.rag.indexer --embedder gemini
 ```
 
+A primeira indexação com Gemini leva cerca de um minuto e avisa na tela. O
+plano gratuito permite 100 requisições de embedding por minuto, e a base tem
+140 imóveis; o `GeminiEmbedder` segura as chamadas para caber na janela em vez
+de tomar 429 no meio e perder o trabalho já feito. `GEMINI_EMBED_RPM` ajusta o
+limite (0 desliga a espera).
+
+### O índice é cache, não trabalho de inicialização
+
+`indexer.get_index(embedder, properties)` é o caminho que todo consumidor deve
+usar. Ele devolve `(index, origem)`, com `origem` em `"cache"` ou `"rebuild"`,
+e só reconstrói quando algo que afeta os vetores mudou: o embedder, a dimensão,
+a versão do formato, ou a própria base, detectada por uma impressão digital
+sobre `id` + texto de busca de cada imóvel.
+
+Isso não é otimização. Indexar custa **uma requisição de API por imóvel**, então
+chamar `build_index` a cada inicialização torra a cota do plano gratuito antes
+da primeira mensagem do lead. Foi exatamente o que aconteceu:
+
+```
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED
+  Quota exceeded for metric: embed_content_free_tier_requests, limit: 100
+```
+
+`build_index` continua existindo e continua fazendo a coisa cara, de propósito:
+é o que o `reindex()` e o CLI usam quando a intenção é justamente refazer tudo.
+
+Se a indexação falhar mesmo assim (cota do dia, rede, chave revogada),
+`get_index` cai para o `HashingEmbedder` e devolve um índice lexical válido em
+vez de derrubar o processo. Passe `fallback=False` quando quiser o erro.
+
 ## Convenção de idioma
 
 O código deste módulo é **em inglês**; o produto é **em português**.
