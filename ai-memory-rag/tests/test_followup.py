@@ -1,13 +1,10 @@
 """
-Tests for the automatic follow-up.
+Testes do follow-up automático.
 
     python -m unittest discover -s ai-memory-rag/tests -v
 
-The clock is injected, so a 7-day cadence is tested in microseconds. No test
-calls Gemini.
-
-Assertions on user-facing strings stay in Portuguese: that text is what the
-lead reads and is not translated.
+O relógio é injetado, então cadência de 7 dias é testada em microssegundos.
+Nenhum teste chama o Gemini.
 """
 
 import os
@@ -65,7 +62,7 @@ def build(clock=None, profile=None, with_consent=True, message="quero comprar"):
 
 
 # ===========================================================================
-# Decision
+# Decisão
 # ===========================================================================
 
 
@@ -75,7 +72,7 @@ class TestCadence(unittest.TestCase):
         self.assertEqual(cadence_for(PROFILE), DEFAULT_CADENCE)
 
     def test_urgent_lead_uses_the_short_cadence(self):
-        # Someone who must move in two weeks will not wait three days.
+        # Quem precisa mudar em duas semanas não espera três dias.
         self.assertEqual(cadence_for(dict(PROFILE, urgency="high")), URGENT_CADENCE)
 
     def test_missing_profile_does_not_break(self):
@@ -143,8 +140,8 @@ class TestWhenToSend(unittest.TestCase):
         self.assertIn("teto", decision.reason)
 
     def test_a_lead_reply_restarts_the_ladder(self):
-        # The lead answered the first follow-up: they are conversing, not
-        # running away. The next nudge goes back to the short 24h interval.
+        # O lead respondeu ao primeiro follow-up: ele está conversando, não
+        # fugindo. A próxima retomada volta ao intervalo curto de 24h.
         memory, clock = build()
         clock.advance(hours=25)
         memory.record_followup("lead-1")
@@ -170,7 +167,7 @@ class TestWhenToSend(unittest.TestCase):
 
 
 class TestWhenNotToSend(unittest.TestCase):
-    """The half that keeps follow-up from becoming spam."""
+    """A metade que separa follow-up de spam."""
 
     def test_no_consent_means_no_send(self):
         memory, clock = build(with_consent=False)
@@ -181,8 +178,8 @@ class TestWhenNotToSend(unittest.TestCase):
         self.assertIn("LGPD", decision.reason)
 
     def test_consent_can_be_waived_for_the_site_chat(self):
-        # In the site's own chat the lead is right there; the requirement
-        # belongs to external channels. It is a parameter, not a hidden choice.
+        # No chat do próprio site o lead está ali; a exigência é do canal
+        # externo. Fica como parâmetro, não como decisão escondida.
         memory, clock = build(with_consent=False)
         clock.advance(days=5)
 
@@ -207,7 +204,7 @@ class TestWhenNotToSend(unittest.TestCase):
             self.assertTrue(detect_opt_out(memory, "lead-1"), phrase)
 
     def test_an_agent_phrase_does_not_trigger_opt_out(self):
-        # "me avisa se não quiser mais receber" is the AGENT speaking.
+        # "me avisa se não quiser mais receber" é fala do AGENTE.
         memory, _ = build()
         memory.record_message(
             "lead-1", "assistant", "me avisa se não quiser mais receber novidades"
@@ -222,9 +219,9 @@ class TestWhenNotToSend(unittest.TestCase):
         self.assertIn("sem conversa", decision.reason)
 
     def test_followup_does_not_reset_its_own_silence_counter(self):
-        # Regression: the follow-up message enters the history as an agent
-        # turn. If that counted as interaction, silence would reset and the
-        # second follow-up would never arrive.
+        # Regressão: a mensagem do follow-up entra no histórico como fala do
+        # agente. Se isso contasse como interação, o silêncio zerava e o segundo
+        # follow-up nunca chegaria.
         memory, clock = build()
         clock.advance(hours=25)
 
@@ -271,7 +268,7 @@ class TestPipelineSweep(unittest.TestCase):
 
 
 # ===========================================================================
-# Text
+# Texto
 # ===========================================================================
 
 
@@ -289,7 +286,7 @@ class TestChannel(unittest.TestCase):
 
 
 class TestHeuristicText(unittest.TestCase):
-    """Without an LLM, the templates must stay concrete, not generic."""
+    """Sem LLM, os moldes precisam ser concretos, não genéricos."""
 
     def generate(self, advance_hours, followups=0, **kwargs):
         memory, clock = build(**kwargs)
@@ -492,7 +489,7 @@ class TestSending(unittest.TestCase):
             if followup:
                 tones.append(followup.tone)
 
-        # Three attempts and stop. The fourth never happens.
+        # Três tentativas e para. A quarta não acontece.
         self.assertEqual(tones, ["reopen", "offer", "signoff"])
         self.assertEqual(memory.state("lead-1")["followups_sent"], 3)
 

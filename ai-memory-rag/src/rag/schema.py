@@ -1,35 +1,35 @@
 """
-Data contract for the property documents used by the RAG.
+Contrato dos dados de imóvel usados pelo RAG.
 
-This file is the source of truth for what a property looks like. Three sides of
-the project consume it:
+Este arquivo é a fonte da verdade sobre o formato de um imóvel. Três lados do
+projeto o consomem:
 
-  * the synthetic base generator (scripts/generate_properties.py);
-  * this module's indexer and retriever;
-  * Person 3, who loads `shared/data/imoveis.json` into the database.
+  * o gerador da base sintética (scripts/generate_properties.py);
+  * o indexador e o retriever deste módulo;
+  * a Pessoa 3, que carrega `shared/data/imoveis.json` no banco.
 
-LANGUAGE: field names, enum values and identifiers are in English. Only two
-things stay in Portuguese, and both for good reason:
+IDIOMA: nomes de campo, valores de enum e identificadores estão em inglês.
+Só duas coisas ficam em português, e ambas por bom motivo:
 
-  * PROPER NOUNS as values ("Copacabana", "Zona Sul", "Rio de Janeiro"). These
-    are the real names of real places; translating them would be wrong.
-  * DISPLAY LABELS, kept in the *_LABELS maps below. Enums are English for the
-    code, but the text shown to a lead or a broker has to read as Portuguese:
-    the agent says "apartamento", not "APARTMENT".
+  * NOMES PRÓPRIOS como valor ("Copacabana", "Zona Sul", "Rio de Janeiro").
+    São nomes reais de lugares reais; traduzir seria errado.
+  * RÓTULOS DE EXIBIÇÃO, guardados nos mapas *_LABELS abaixo. Os enums são em
+    inglês para o código, mas o texto mostrado ao lead ou ao corretor tem de
+    ler como português: o agente diz "apartamento", não "APARTMENT".
 
-The field design follows the index schema taught in lesson 04 of "Análise de
-Documentos com Serviços do Azure" (Azure Cognitive Search): every field is
-classified as searchable, filterable, sortable or facetable. Search runs
-locally here, but the classification is recorded in AZURE_FIELD_MAP so that
-swapping in Azure AI Search would be translation work, not redesign.
+O desenho dos campos segue o esquema de índice ensinado na Aula 04 de "Análise
+de Documentos com Serviços do Azure" (Azure Cognitive Search): cada campo é
+classificado como pesquisável, filtrável, ordenável ou facetável. Aqui a busca
+roda local, mas a classificação está registrada em AZURE_FIELD_MAP para que
+trocar por Azure AI Search seja trabalho de tradução, não de redesenho.
 """
 
 # ---------------------------------------------------------------------------
-# Closed vocabularies
+# Vocabulários fechados
 # ---------------------------------------------------------------------------
 
-# An investor buys, so INVEST is not a deal type: it maps to SALE plus a yield
-# filter. See `filters_from_profile` in the retriever.
+# Um investidor compra, então INVEST não é um tipo de negócio: ele mapeia para
+# SALE mais um filtro de rentabilidade. Ver `filters_from_profile` no retriever.
 DEAL_TYPES = ("SALE", "RENTAL")
 
 PROPERTY_TYPES = (
@@ -42,8 +42,8 @@ PROPERTY_TYPES = (
 
 STATUSES = ("AVAILABLE", "RESERVED", "SOLD")
 
-# Portuguese labels for anything a lead or broker reads. The code branches on
-# the English enum; the text uses these.
+# Rótulos em português para tudo que um lead ou corretor lê. O código decide
+# pelo enum em inglês; o texto usa estes.
 DEAL_TYPE_LABELS = {"SALE": "venda", "RENTAL": "aluguel"}
 
 PROPERTY_TYPE_LABELS = {
@@ -56,17 +56,17 @@ PROPERTY_TYPE_LABELS = {
 
 
 # ---------------------------------------------------------------------------
-# Canonical location catalogue
+# Catálogo canônico de localidades
 # ---------------------------------------------------------------------------
-# neighborhood -> (zone, city, lat, lon, base_sale_price_per_m2)
+# bairro -> (zona, cidade, lat, lon, preco_m2_venda_base)
 #
-# Place names stay in Portuguese: they are proper nouns.
+# Os nomes de lugar ficam em português: são nomes próprios.
 #
-# IMPORTANT (integration with Person 1): `extrair_regiao` in
-# ai-core/src/agent.py only recognises a fixed list of locations and returns
-# them in Title Case. The neighborhoods and zone names below were chosen to
-# match that list. If Person 1 extends `regioes_conhecidas`, extend this too,
-# otherwise a lead asks for a region that has no inventory.
+# IMPORTANTE (integração com a Pessoa 1): a função `extrair_regiao` do
+# ai-core/src/agent.py só reconhece uma lista fixa de localidades e devolve o
+# valor em Title Case. Os bairros e nomes de zona abaixo foram escolhidos para
+# casar com aquela lista. Se a Pessoa 1 ampliar `regioes_conhecidas`, ampliar
+# aqui também, senão o lead informa uma região que não tem estoque.
 NEIGHBORHOODS = {
     "Leblon":       ("Zona Sul",   "Rio de Janeiro", -22.9838, -43.2226, 25000),
     "Ipanema":      ("Zona Sul",   "Rio de Janeiro", -22.9838, -43.2045, 22000),
@@ -92,15 +92,15 @@ NEIGHBORHOODS = {
 
 ZONES = tuple(sorted({data[0] for data in NEIGHBORHOODS.values()}))
 
-# Terms a lead may use that name a whole zone rather than a neighborhood.
+# Termos que o lead pode usar e que designam uma zona inteira, não um bairro.
 BROAD_REGIONS = ZONES
 
 
 def resolve_region(region):
-    """Classify a region string as either a neighborhood or a zone.
+    """Classifica um texto de região como bairro ou como zona.
 
-    Takes the region the lead mentioned and returns `(neighborhood, zone)`,
-    with at most one of them filled in.
+    Recebe a região que o lead mencionou e devolve `(bairro, zona)`, com no
+    máximo um dos dois preenchido.
 
     >>> resolve_region("Copacabana")
     ('Copacabana', None)
@@ -126,7 +126,7 @@ def resolve_region(region):
 
 
 # ---------------------------------------------------------------------------
-# Document fields
+# Campos do documento
 # ---------------------------------------------------------------------------
 
 REQUIRED_FIELDS = (
@@ -149,9 +149,9 @@ REQUIRED_FIELDS = (
     "status",
 )
 
-# How each field would be declared in an Azure Cognitive Search index,
-# following the `Search.py` pattern from lesson 04. Serves as documentation and
-# as a migration roadmap if the project ever gets an Azure account.
+# Como cada campo seria declarado em um índice do Azure Cognitive Search,
+# seguindo o padrão do `Search.py` da Aula 04. Serve de documentação e de
+# roteiro caso o projeto ganhe uma conta Azure depois.
 #   key        -> SimpleField(key=True)
 #   searchable -> SearchableField(searchable=True)
 #   filterable -> filterable=True
@@ -176,7 +176,7 @@ AZURE_FIELD_MAP = {
                            "facetable": True},
     "zone":               {"type": "String",  "filterable": True, "facetable": True},
     "city":               {"type": "String",  "filterable": True, "facetable": True},
-    # In Azure this would be a single GeographyPoint field, queried with
+    # No Azure isto seria um único campo GeographyPoint, consultado com
     # geo.distance(location, geography'POINT(lon lat)') le radius_km.
     "lat":                {"type": "Double",  "geo": "location"},
     "lon":                {"type": "Double",  "geo": "location"},
@@ -188,9 +188,8 @@ AZURE_FIELD_MAP = {
     "updated_at":         {"type": "String",  "filterable": True, "sortable": True},
 }
 
-# Relative weight of each field in the text that goes into the embedding.
-# Equivalent to Azure's per-field boosting
-# (`search_fields=["title^3", "description"]`).
+# Peso relativo de cada campo no texto que vai para o embedding. Equivale ao
+# boosting por campo do Azure (`search_fields=["title^3", "description"]`).
 TEXT_WEIGHTS = {
     "title": 3,
     "neighborhood": 2,
@@ -201,30 +200,30 @@ TEXT_WEIGHTS = {
 
 
 def validate_property(prop):
-    """Return the list of problems found in a document. Empty means valid."""
+    """Devolve a lista de problemas do documento. Vazia significa válido."""
     problems = []
 
     for field in REQUIRED_FIELDS:
         if field not in prop:
-            problems.append("missing required field: " + field)
+            problems.append("campo obrigatório ausente: " + field)
 
     if prop.get("deal_type") not in DEAL_TYPES:
-        problems.append("invalid deal_type: %r" % (prop.get("deal_type"),))
+        problems.append("deal_type inválido: %r" % (prop.get("deal_type"),))
 
     if prop.get("property_type") not in PROPERTY_TYPES:
-        problems.append("invalid property_type: %r" % (prop.get("property_type"),))
+        problems.append("property_type inválido: %r" % (prop.get("property_type"),))
 
     if prop.get("status") not in STATUSES:
-        problems.append("invalid status: %r" % (prop.get("status"),))
+        problems.append("status inválido: %r" % (prop.get("status"),))
 
     if prop.get("neighborhood") not in NEIGHBORHOODS:
-        problems.append("neighborhood not in catalogue: %r" % (prop.get("neighborhood"),))
+        problems.append("neighborhood fora do catálogo: %r" % (prop.get("neighborhood"),))
 
     price = prop.get("price")
     if not isinstance(price, (int, float)) or price <= 0:
-        problems.append("invalid price: %r" % (price,))
+        problems.append("price inválido: %r" % (price,))
 
     if not isinstance(prop.get("features"), list):
-        problems.append("features must be a list")
+        problems.append("features precisa ser uma lista")
 
     return problems

@@ -1,14 +1,11 @@
 """
-Tests for the broker summary and the incremental summary.
+Testes do resumo para o corretor e do resumo incremental.
 
     python -m unittest discover -s ai-memory-rag/tests -v
 
-No test calls Gemini. The LLM path is exercised with `StubClient`, which
-returns predefined replies, including MALFORMED ones, because that is how a
-real model fails.
-
-Assertions on user-facing strings stay in Portuguese: that text is product
-output and is not translated.
+Nenhum teste chama o Gemini. O caminho com LLM é exercitado com `StubClient`,
+que devolve respostas pré-definidas, inclusive MALFORMADAS, porque é assim que
+um modelo real erra.
 """
 
 import json
@@ -40,8 +37,8 @@ class FakeClock:
         return self.moment
 
 
-# Written in our own dialect. `update_profile` accepts both, and
-# `compute_score` takes this shape directly.
+# Escrito no nosso dialeto. O `update_profile` aceita os dois formatos, e o
+# `compute_score` recebe este aqui direto.
 FULL_PROFILE = {
     "name": "João", "intent": "BUY", "price_range": "800k-1.5m",
     "region": "Copacabana", "bedrooms": "3", "urgency": "high",
@@ -89,7 +86,7 @@ class TestScore(unittest.TestCase):
         self.assertGreaterEqual(low, 0)
 
     def test_contact_weighs_as_much_as_intent(self):
-        # For an SDR, a lead with no phone is a lead you cannot work.
+        # Para um SDR, lead sem telefone é lead que não dá para trabalhar.
         intent_only, _ = compute_score({"intent": "BUY"}, 0, 0)
         contact_only, _ = compute_score({"phone": "(21) 99999-9999"}, 0, 0)
         self.assertEqual(intent_only, contact_only)
@@ -106,8 +103,8 @@ class TestScore(unittest.TestCase):
         self.assertEqual(hot - cold, 40)
 
     def test_long_silence_cools_a_perfect_lead(self):
-        # A lead who scored 100 and vanished two months ago must not sit at the
-        # top of the broker's list.
+        # Um lead que pontuou 100 e sumiu há dois meses não pode ficar no topo
+        # da lista do corretor.
         score, _ = compute_score(FULL_PROFILE, 5, hours_of_silence=24 * 60)
         self.assertEqual(score, 60)
         self.assertEqual(classify_temperature(score), "WARM")
@@ -151,6 +148,23 @@ class TestAlertsAndActions(unittest.TestCase):
         alerts = build_alerts(FULL_PROFILE, self.state(followups_sent=3))
         self.assertTrue(any("follow-up" in a for a in alerts))
 
+    def test_alert_when_the_lead_dodges_a_field(self):
+        # O corretor precisa saber que o lead se esquiva de um ponto
+        # específico: é sinal diferente de "ainda não perguntamos".
+        alerts = build_alerts(
+            FULL_PROFILE, self.state(unanswered={"price_range": 4, "phone": 1})
+        )
+        esquiva = [a for a in alerts if "esquiva" in a]
+
+        self.assertEqual(len(esquiva), 1)
+        self.assertIn("faixa de preço", esquiva[0])
+        # phone ficou abaixo do limiar, então não entra.
+        self.assertNotIn("telefone", esquiva[0])
+
+    def test_no_dodge_alert_below_the_threshold(self):
+        alerts = build_alerts(FULL_PROFILE, self.state(unanswered={"price_range": 2}))
+        self.assertFalse(any("esquiva" in a for a in alerts))
+
     def test_alert_for_missing_consent(self):
         alerts = build_alerts(FULL_PROFILE, self.state(consent=None))
         self.assertTrue(any("LGPD" in a for a in alerts))
@@ -169,7 +183,7 @@ class TestAlertsAndActions(unittest.TestCase):
         self.assertIn("hoje", action)
 
     def test_hot_investor_goes_to_the_specialist(self):
-        # Scenario 2 of the brief: "Direcionar para especialista".
+        # Cenário 2 do PDF: "Direcionar para especialista".
         profile = dict(FULL_PROFILE, intent="INVEST")
         action = suggest_next_action(profile, "HOT", self.state())
         self.assertIn("especialista", action)
@@ -181,12 +195,12 @@ class TestAlertsAndActions(unittest.TestCase):
 
 
 # ===========================================================================
-# Broker summary
+# Resumo para o corretor
 # ===========================================================================
 
 
 class TestHeuristicSummary(unittest.TestCase):
-    """With no LLM configured, the dashboard still has to work."""
+    """Sem LLM configurado, o dashboard ainda precisa funcionar."""
 
     def setUp(self):
         self.memory = memory_with_conversation(profile=FULL_PROFILE)
@@ -229,7 +243,7 @@ class TestHeuristicSummary(unittest.TestCase):
 
         self.assertIn("QUENTE", markdown)
         self.assertIn("**Próxima ação:**", markdown)
-        # The origin must stay visible: a rule must not pass for AI.
+        # A origem precisa ficar visível: regra não pode passar por IA.
         self.assertIn("IA indisponível", markdown)
 
     def test_serializes_for_the_api(self):
@@ -266,8 +280,8 @@ class TestSummaryWithLLM(unittest.TestCase):
         self.assertIn("IMV-0028", summary.next_action)
 
     def test_score_still_comes_from_the_rule(self):
-        # The LLM opines on text, not on prioritisation: the score has to stay
-        # auditable and reproducible.
+        # O LLM opina sobre texto, não sobre priorização: o score precisa
+        # continuar auditável e reproduzível.
         summary, _ = self.summarize(self.REPLY)
         self.assertEqual(summary.score, 100)
         self.assertEqual(summary.temperature, "HOT")
@@ -322,7 +336,7 @@ class TestSummaryWithLLM(unittest.TestCase):
         self.assertTrue(summary.next_action, "next_action can never be empty")
 
     def test_aliases_become_real_data_on_the_dashboard(self):
-        # The broker is an authorised recipient.
+        # O corretor é destinatário autorizado.
         self.memory.record_message("lead-1", "user", "escreve pra joao@x.com")
         self.memory.history("lead-1", mask=True)
 
@@ -344,7 +358,7 @@ class TestSummaryWithLLM(unittest.TestCase):
 
 
 # ===========================================================================
-# Memory compression
+# Compressão da memória
 # ===========================================================================
 
 
@@ -377,7 +391,7 @@ class TestMemoryCompression(unittest.TestCase):
         memory = self.long_memory()
         Summarizer(client=StubClient("resumo")).compress_memory(memory, "lead-1")
 
-        # The most recent messages stay verbatim in the history.
+        # As últimas mensagens continuam literais no histórico.
         self.assertEqual(memory.history("lead-1")[-1]["content"], "mensagem 39")
 
     def test_compresses_without_an_llm(self):
@@ -385,8 +399,7 @@ class TestMemoryCompression(unittest.TestCase):
         text = Summarizer(client=UnavailableClient()).compress_memory(memory, "lead-1")
 
         self.assertTrue(text)
-        # With no model, the summary admits what it did not keep rather than
-        # inventing it.
+        # Sem modelo, o resumo admite o que não preservou em vez de inventar.
         self.assertIn("sem IA", text)
         self.assertIn("Copacabana", text)
 
@@ -449,8 +462,8 @@ class TestPipeline(unittest.TestCase):
         self.assertEqual(summarize_pipeline(memory), [])
 
     def test_pipeline_does_not_call_the_llm_by_default(self):
-        # Sweeping the whole pipeline with one Gemini call per lead is slow and
-        # expensive.
+        # Varrer a carteira inteira com uma chamada ao Gemini por lead é lento
+        # e caro.
         memory = memory_with_conversation(profile=FULL_PROFILE)
         client = StubClient('{"resumo": "x"}')
 
@@ -459,7 +472,7 @@ class TestPipeline(unittest.TestCase):
 
 
 # ===========================================================================
-# LLM JSON parser
+# Parser de JSON do LLM
 # ===========================================================================
 
 

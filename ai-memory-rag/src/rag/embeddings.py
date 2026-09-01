@@ -1,28 +1,27 @@
 """
-Embedding layer for the RAG.
+Camada de embeddings do RAG.
 
-Two implementations, one interface:
+Duas implementações, uma interface:
 
-  GeminiEmbedder   real semantic embeddings via `gemini-embedding-001`.
-                   Needs GEMINI_API_KEY and network access.
+  GeminiEmbedder   embeddings semânticos de verdade, via `gemini-embedding-001`.
+                   Precisa de GEMINI_API_KEY e de rede.
 
-  HashingEmbedder  deterministic fallback, fully offline, zero dependencies.
-                   It is NOT semantic: it is a lexical projection (hashing of
-                   unigrams and bigrams, in the spirit of HashingVectorizer).
-                   It exists so tests and demos run with no API key and no
-                   internet, and so nobody on the team has to install anything
-                   to see the module work. It does well on "apartamento 3
-                   quartos na zona sul", because the domain vocabulary is small
-                   and repetitive; it fails on synonyms ("perto do mar" vs
-                   "vista para a praia"), and that is where Gemini earns its
-                   place.
+  HashingEmbedder  fallback determinístico, 100% offline, sem dependências.
+                   NÃO é semântico: é uma projeção lexical (hashing de
+                   unigramas e bigramas, no espírito do HashingVectorizer).
+                   Existe para que os testes e a demo rodem sem chave e sem
+                   internet, e para que ninguém do grupo precise instalar nada
+                   para ver o módulo funcionar. Acerta bem em "apartamento 3
+                   quartos na zona sul", porque o vocabulário do domínio é
+                   pequeno e repetitivo; erra em sinônimos ("perto do mar" x
+                   "vista para a praia"), e é aí que o Gemini se justifica.
 
-`get_embedder()` picks between them, preferring Gemini when a key is available.
+`get_embedder()` escolhe entre os dois, preferindo o Gemini quando há chave.
 
-Why the interface separates documents from queries: `gemini-embedding-001`
-accepts a `task_type`, and using RETRIEVAL_DOCUMENT when indexing and
-RETRIEVAL_QUERY when searching measurably improves retrieval quality. An
-embedder with a single `embed()` method could not make that distinction.
+Por que a interface separa documento de consulta: o `gemini-embedding-001`
+aceita um `task_type`, e usar RETRIEVAL_DOCUMENT ao indexar e RETRIEVAL_QUERY
+ao buscar melhora a qualidade da recuperação de forma mensurável. Um embedder
+com um único método `embed()` não conseguiria fazer essa distinção.
 """
 
 import hashlib
@@ -32,13 +31,13 @@ import re
 import unicodedata
 
 # ---------------------------------------------------------------------------
-# Text utilities
+# Utilitários de texto
 # ---------------------------------------------------------------------------
 
 _NON_ALPHANUM = re.compile(r"[^a-z0-9]+")
 
-# Words that show up in almost every listing and therefore discriminate
-# nothing. Kept in Portuguese because that is the language of the corpus.
+# Palavras que aparecem em quase todo anúncio e por isso não discriminam nada.
+# Ficam em português porque é a língua do corpus.
 _STOPWORDS = {
     "a", "ao", "aos", "as", "com", "da", "das", "de", "do", "dos", "e",
     "em", "na", "nas", "no", "nos", "o", "os", "para", "por", "que", "se",
@@ -47,7 +46,7 @@ _STOPWORDS = {
 
 
 def normalize(text):
-    """Lowercase, strip accents. Makes "Gávea" and "gavea" the same token."""
+    """Minúsculas, sem acento. Faz "Gávea" e "gavea" virarem o mesmo token."""
     if not text:
         return ""
 
@@ -57,12 +56,12 @@ def normalize(text):
 
 
 def tokenize(text):
-    """Return the useful unigrams and bigrams of a text."""
+    """Devolve os unigramas e bigramas úteis de um texto."""
     cleaned = _NON_ALPHANUM.sub(" ", normalize(text))
     words = [w for w in cleaned.split() if len(w) > 1 and w not in _STOPWORDS]
 
     tokens = list(words)
-    # Bigrams capture domain phrases that lose meaning when split:
+    # Bigramas capturam expressões do domínio que perdem sentido separadas:
     # "zona sul", "vista mar", "portaria 24h", "3 quartos".
     for previous, following in zip(words, words[1:]):
         tokens.append(previous + "_" + following)
@@ -71,7 +70,7 @@ def tokenize(text):
 
 
 # ---------------------------------------------------------------------------
-# Vector algebra (pure Python; the base is small, numpy is not needed)
+# Álgebra de vetores (Python puro; a base é pequena, não precisa de numpy)
 # ---------------------------------------------------------------------------
 
 def l2_normalize(vector):
@@ -83,9 +82,9 @@ def l2_normalize(vector):
 
 
 def cosine(a, b):
-    """Cosine similarity. Robust to non-normalized vectors."""
+    """Similaridade de cosseno. Robusta a vetores não normalizados."""
     if len(a) != len(b):
-        raise ValueError("vectors of different dimensions: %d != %d" % (len(a), len(b)))
+        raise ValueError("vetores de dimensões diferentes: %d != %d" % (len(a), len(b)))
 
     dot = 0.0
     norm_a = 0.0
@@ -102,15 +101,15 @@ def cosine(a, b):
 
 
 # ---------------------------------------------------------------------------
-# Offline lexical embedder
+# Embedder lexical offline
 # ---------------------------------------------------------------------------
 
 class HashingEmbedder:
-    """Deterministic lexical projection, no network and no dependencies.
+    """Projeção lexical determinística, sem rede e sem dependências.
 
-    Uses hashlib rather than the built-in `hash()` because Python randomises
-    string hashing per process (PYTHONHASHSEED), which would make an index
-    saved to disk disagree with queries from a later run.
+    Usa hashlib em vez do `hash()` embutido porque o hash de strings do Python
+    é randomizado por processo (PYTHONHASHSEED), o que faria o índice salvo em
+    disco não bater com as consultas de uma execução seguinte.
     """
 
     name = "hashing-v1"
@@ -129,8 +128,8 @@ class HashingEmbedder:
             h = int.from_bytes(digest, "big")
             index = h % self.dim
             sign = 1.0 if (h >> 17) & 1 else -1.0
-            # Sublinear tf: the tenth mention of "varanda" is not worth ten
-            # times the first.
+            # tf sublinear: a décima menção de "varanda" não vale dez vezes a
+            # primeira.
             vector[index] += sign * (1.0 + math.log(n))
 
         return l2_normalize(vector)
@@ -143,14 +142,14 @@ class HashingEmbedder:
 
 
 # ---------------------------------------------------------------------------
-# Gemini embedder
+# Embedder Gemini
 # ---------------------------------------------------------------------------
 
 class GeminiEmbedder:
-    """Semantic embeddings via the Gemini API.
+    """Embeddings semânticos via API do Gemini.
 
-    The SDK import is lazy on purpose: someone who only wants to run the
-    offline tests should not need the package installed.
+    O import do SDK é lazy de propósito: quem só quer rodar os testes offline
+    não deveria precisar do pacote instalado.
     """
 
     name = "gemini-embedding-001"
@@ -163,10 +162,10 @@ class GeminiEmbedder:
         api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise RuntimeError(
-                "GEMINI_API_KEY not found. Use HashingEmbedder to run offline."
+                "GEMINI_API_KEY não encontrada. Use HashingEmbedder para rodar offline."
             )
 
-        from google import genai  # lazy import
+        from google import genai  # import lazy
 
         self._genai = genai
         self._client = genai.Client(api_key=api_key)
@@ -181,9 +180,9 @@ class GeminiEmbedder:
         return vectors
 
     def _call(self, chunk, task_type):
-        # Different google-genai versions accept `config` differently. Try with
-        # task_type (better quality) and fall back to the minimal call if the
-        # installed SDK does not support it.
+        # Versões diferentes do google-genai aceitam o `config` de formas
+        # diferentes. Tenta com task_type (melhor qualidade) e cai para a
+        # chamada mínima se o SDK instalado não suportar.
         try:
             from google.genai import types
 
@@ -211,14 +210,14 @@ class GeminiEmbedder:
 
 
 # ---------------------------------------------------------------------------
-# Selection
+# Seleção
 # ---------------------------------------------------------------------------
 
 def load_env(path=".env"):
-    """Read a simple .env file without depending on python-dotenv.
+    """Lê um .env simples sem depender do python-dotenv.
 
-    Does not overwrite variables already present in the environment, which is
-    what dotenv does and what makes sense in CI.
+    Não sobrescreve variáveis já presentes no ambiente, que é o comportamento
+    do dotenv e o que faz sentido em CI.
     """
     if not os.path.isfile(path):
         return
@@ -237,11 +236,18 @@ def load_env(path=".env"):
 
 
 def get_embedder(prefer=None, api_key=None):
-    """Return the best available embedder.
+    """Devolve o melhor embedder disponível.
 
-    prefer="gemini"   force Gemini and fail loudly if unavailable.
-    prefer="hashing"  force the offline path.
-    prefer=None       try Gemini, fall back to hashing without breaking.
+    prefer="gemini"   força o Gemini e falha alto se não der.
+    prefer="hashing"  força o modo offline.
+    prefer=None       tenta Gemini e cai para hashing sem quebrar.
+
+    No modo automático a checagem inclui uma chamada de sonda. Construir o
+    `GeminiEmbedder` NÃO valida a chave: o SDK só fala com a API na primeira
+    requisição. Sem a sonda, uma chave inválida passava pela construção e
+    explodia lá adiante, dentro do `build_index`, derrubando o processo em vez
+    de cair para o modo offline. Uma chamada minúscula no início é barata perto
+    de um traceback no meio de uma apresentação.
     """
     if prefer == "hashing":
         return HashingEmbedder()
@@ -250,7 +256,20 @@ def get_embedder(prefer=None, api_key=None):
         return GeminiEmbedder(api_key=api_key)
 
     try:
-        return GeminiEmbedder(api_key=api_key)
+        embedder = GeminiEmbedder(api_key=api_key)
+        embedder.embed_query("teste")
+        return embedder
     except Exception as error:
-        print("[rag] Gemini unavailable (%s). Falling back to HashingEmbedder." % error)
+        print("[rag] Gemini indisponível (%s)." % _resumo_do_erro(error))
+        print("[rag] Usando HashingEmbedder offline.")
         return HashingEmbedder()
+
+
+def _resumo_do_erro(error):
+    """Primeira linha do erro, para o aviso caber na tela.
+
+    Erros de API vêm com JSON e stack de várias linhas; despejar tudo isso
+    antes do cabeçalho do programa esconde a informação que importa.
+    """
+    texto = str(error).strip().replace("\n", " ")
+    return texto[:160] + ("..." if len(texto) > 160 else "")

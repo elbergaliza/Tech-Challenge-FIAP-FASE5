@@ -1,13 +1,10 @@
 """
-Tests for privacy and conversational memory (Part 2).
+Testes de privacidade e memória conversacional (Parte 2).
 
     python -m unittest discover -s ai-memory-rag/tests -v
 
-No dependencies and no network. The clock is injected, so retention and
-follow-up timing are testable without waiting 180 days.
-
-Assertions on user-facing strings stay in Portuguese: that text is product
-output and is not translated.
+Sem dependências e sem rede. O relógio é injetado, então retenção e cadência de
+follow-up são testáveis sem esperar 180 dias.
 """
 
 import os
@@ -30,7 +27,7 @@ from privacy import (                                          # noqa: E402
 
 
 class FakeClock:
-    """Controllable clock, to test deadlines without waiting for them."""
+    """Relógio controlável, para testar prazos sem esperar por eles."""
 
     def __init__(self, start=None):
         self.moment = start or datetime(2026, 8, 28, 10, 0, tzinfo=timezone.utc)
@@ -44,7 +41,7 @@ class FakeClock:
 
 
 # ===========================================================================
-# Privacy
+# Privacidade
 # ===========================================================================
 
 
@@ -79,17 +76,16 @@ class TestPseudonymizer(unittest.TestCase):
         self.assertIn("Jo", self.pseudo.mask("o Jo chegou", names=["Jo"])[0])
 
     def test_does_not_mistake_a_price_for_personal_data(self):
-        # Regression: property values are the most common digit sequences in
-        # this conversation. If they turn into phones or postcodes, the agent
-        # loses the price.
+        # Regressão: valores de imóvel são as sequências numéricas mais comuns
+        # nesta conversa. Se virarem telefone ou CEP, o agente perde o preço.
         for price in ["R$ 1.125.000", "R$ 806.000", "500000", "R$ 3.150"]:
             text, mapping = self.pseudo.mask("o valor é %s" % price)
             self.assertEqual(mapping, {}, "wrongly masked in %r" % price)
             self.assertIn(price, text)
 
     def test_alias_is_stable_across_turns(self):
-        # The same e-mail must always get the same alias, otherwise the LLM
-        # sees [EMAIL_1] and [EMAIL_2] and concludes they are different people.
+        # O mesmo e-mail precisa receber sempre o mesmo apelido, senão o LLM vê
+        # [EMAIL_1] e [EMAIL_2] e conclui que são pessoas diferentes.
         _, mapping = self.pseudo.mask("escreve pra ana@x.com")
         text2, mapping2 = self.pseudo.mask("confirma ana@x.com?", mapping=mapping)
 
@@ -116,8 +112,8 @@ class TestPseudonymizer(unittest.TestCase):
         )
 
     def test_alias_invented_by_the_llm_never_reaches_the_lead(self):
-        # The model sometimes invents an alias that never existed. The lead
-        # must not see "[EMAIL_9]" on screen.
+        # O modelo às vezes inventa um apelido que nunca existiu. O lead não
+        # pode ver "[EMAIL_9]" na tela.
         self.assertNotIn("[", self.pseudo.restore("Enviarei para [EMAIL_9] agora", {}))
 
     def test_empty_text_does_not_break(self):
@@ -126,7 +122,7 @@ class TestPseudonymizer(unittest.TestCase):
 
 
 class TestNameDetection(unittest.TestCase):
-    """The name arrives declared; it must be caught on first mention."""
+    """O nome chega declarado; é preciso pegá-lo já na primeira menção."""
 
     def setUp(self):
         self.pseudo = Pseudonymizer()
@@ -145,7 +141,7 @@ class TestNameDetection(unittest.TestCase):
             self.assertIn(expected, detect_names(text), text)
 
     def test_first_name_comes_first(self):
-        # It is the form used when restoring: "Prazer, João!" rather than
+        # É a forma usada na restauração: "Prazer, João!" e não
         # "Prazer, João Pereira!".
         self.assertEqual(detect_names("Meu nome é João Pereira")[0], "João")
 
@@ -155,7 +151,7 @@ class TestNameDetection(unittest.TestCase):
         self.assertIn("Pereira", names)
 
     def test_does_not_mistake_an_adjective_for_a_name(self):
-        # Lowercase after "sou" is not a proper name.
+        # Minúscula depois de "sou" não é nome próprio.
         self.assertEqual(detect_names("sou casado e sou de são paulo"), [])
 
     def test_text_without_an_introduction(self):
@@ -163,8 +159,8 @@ class TestNameDetection(unittest.TestCase):
         self.assertEqual(detect_names(""), [])
 
     def test_name_variants_share_one_alias(self):
-        # Regression: "João Pereira", "João" and "Pereira" became [NOME_1],
-        # [NOME_2] and [NOME_3], and the LLM treated them as three people.
+        # Regressão: "João Pereira", "João" e "Pereira" viravam [NOME_1],
+        # [NOME_2] e [NOME_3], e o LLM tratava como três pessoas.
         text, mapping = self.pseudo.mask(
             "Sou João Pereira. Pode me chamar de João, senhor Pereira não.",
             names=detect_names("Meu nome é João Pereira"),
@@ -200,18 +196,18 @@ class TestPrivacyUtilities(unittest.TestCase):
         record = mask_for_log("João pediu contato: joao@x.com", names=["João"])
         self.assertNotIn("joao@x.com", record)
         self.assertNotIn("João", record)
-        # No numbering: there is no way to reconstruct the value from the log.
+        # Sem numeração: não há como remontar o valor a partir do log.
         self.assertIn("[EMAIL]", record)
         self.assertIn("[NOME]", record)
 
 
 # ===========================================================================
-# Memory
+# Memória
 # ===========================================================================
 
 
 class TestLeadProfileAdapter(unittest.TestCase):
-    """The one place Portuguese data keys are allowed to exist."""
+    """O único lugar onde chaves de dado em português podem existir."""
 
     def test_translates_person_1_keys(self):
         profile = lead_profile.from_agent({
@@ -234,16 +230,16 @@ class TestLeadProfileAdapter(unittest.TestCase):
             )
 
     def test_drops_unknown_values_instead_of_carrying_them(self):
-        # Downstream code should never have to remember that "undefined" is a
-        # magic string.
+        # O código lá na frente nunca deveria precisar lembrar que "undefined"
+        # é uma string mágica.
         profile = lead_profile.from_agent({
             "intencao": "COMPRA", "regiao": "undefined", "quartos": "", "nome": None,
         })
         self.assertEqual(profile, {"intent": "BUY"})
 
     def test_is_idempotent(self):
-        # Already-translated profiles must survive a second pass, otherwise
-        # merging a stored profile back into memory would corrupt it.
+        # Perfil já traduzido precisa sobreviver a uma segunda passada, senão
+        # fundir de volta na memória um perfil guardado o corromperia.
         once = lead_profile.from_agent({"intencao": "COMPRA", "quartos": "3"})
         self.assertEqual(lead_profile.from_agent(once), once)
 
@@ -269,7 +265,7 @@ class TestLeadProfileAdapter(unittest.TestCase):
         self.assertEqual(result["regiao"], "undefined")
 
     def test_labels_render_enums_in_portuguese(self):
-        # The code branches on "BUY"; the agent says "compra".
+        # O código decide com "BUY"; o agente diz "compra".
         self.assertEqual(lead_profile.label("intent", "BUY"), "compra")
         self.assertEqual(lead_profile.label("urgency", "high"), "alta")
         self.assertEqual(lead_profile.label("region", "Copacabana"), "Copacabana")
@@ -319,7 +315,7 @@ class TestMemoryBasics(unittest.TestCase):
         )
 
     def test_malicious_lead_id_is_rejected(self):
-        # The lead id becomes a filename in the on-disk store.
+        # O lead_id vira nome de arquivo no store em disco.
         for bad in ["../../.env", "a/b", "", "x" * 65, None, "lead 1"]:
             with self.assertRaises(ValueError, msg=repr(bad)):
                 validate_lead_id(bad)
@@ -333,14 +329,14 @@ class TestMemoryBasics(unittest.TestCase):
 
 
 class TestMonotonicProfile(unittest.TestCase):
-    """The main reason memory exists."""
+    """O motivo principal de a memória existir."""
 
     def setUp(self):
         self.memory = ConversationMemory(InMemoryStore(), clock=FakeClock())
 
     def test_undefined_never_erases_a_known_value(self):
-        # Person 1's extraction is stateless and can regress between calls.
-        # Memory protects what has already been discovered.
+        # A extração da Pessoa 1 é sem estado e pode regredir entre chamadas.
+        # A memória protege o que já foi descoberto.
         self.memory.update_profile("lead-1", {"regiao": "Copacabana", "bedrooms": "3"})
         self.memory.update_profile("lead-1", {"regiao": "undefined", "bedrooms": "undefined"})
 
@@ -356,7 +352,7 @@ class TestMonotonicProfile(unittest.TestCase):
         self.assertEqual(changes[0]["to"], "BUY")
 
     def test_a_lead_correction_is_recorded(self):
-        # "the lead raised their budget" is a buying signal the broker wants.
+        # "o lead subiu o orçamento" é sinal de compra que o corretor quer ver.
         self.memory.update_profile("lead-1", {"preco_faixa": "500k"})
         changes = self.memory.update_profile("lead-1", {"preco_faixa": "800k"})
 
@@ -430,7 +426,7 @@ class TestIncrementalSummary(unittest.TestCase):
         self.assertTrue(self.memory.needs_summary("lead-1"))
 
     def test_summary_preserves_the_live_window(self):
-        # The most recent messages stay verbatim; only the old middle is summarised.
+        # As últimas mensagens continuam literais; só o miolo antigo é resumido.
         for i in range(30):
             self.memory.record_message("lead-1", "user", "msg %d" % i)
 
@@ -451,6 +447,118 @@ class TestIncrementalSummary(unittest.TestCase):
         self.memory.record_message("lead-1", "user", "oi")
         self.memory.set_summary("lead-1", "x", up_to_index=999)
         self.assertEqual(self.memory.state("lead-1")["summarized_up_to"], 1)
+
+
+class TestDodgedFields(unittest.TestCase):
+    """O lead que não responde a uma pergunta específica.
+
+    Só a memória consegue detectar isso: o agente recebe uma janela de dez
+    mensagens e nenhum contador, então repetiria a mesma pergunta para sempre.
+    """
+
+    def setUp(self):
+        self.memory = ConversationMemory(InMemoryStore(), clock=FakeClock())
+
+    def conversar(self, *mensagens):
+        """Mensagens do lead que não respondem nada, com o agente insistindo."""
+        for m in mensagens:
+            self.memory.record_message("lead-1", "user", m)
+            self.memory.record_message("lead-1", "assistant", "e então?")
+
+    def test_poucas_mensagens_nao_marcam_esquiva(self):
+        self.conversar("oi", "bom dia")
+        self.assertEqual(self.memory.dodged_fields("lead-1"), {})
+
+    def test_persegue_um_campo_por_vez(self):
+        # Regressão: a primeira versão contava esquiva para TODO campo
+        # desconhecido, então após 3 mensagens os seis campos eram marcados de
+        # uma vez e o contexto virava "desista de todos os assuntos", que é
+        # instrução pior do que o problema original.
+        self.conversar("oi", "bom dia", "tudo bem?", "kkkk")
+        dodged = self.memory.dodged_fields("lead-1")
+
+        self.assertEqual(list(dodged), ["intent"])
+
+    def test_campo_perseguido_vira_esquiva_no_limiar(self):
+        self.conversar("oi", "bom dia", "tudo bem?")
+        self.assertEqual(self.memory.dodged_fields("lead-1"), {"intent": 3})
+
+    def test_responder_zera_e_passa_para_o_proximo(self):
+        self.conversar("oi", "bom dia", "tudo bem?")
+        self.assertIn("intent", self.memory.dodged_fields("lead-1"))
+
+        self.memory.update_profile("lead-1", {"intencao": "COMPRA"})
+        self.assertEqual(self.memory.dodged_fields("lead-1"), {})
+
+        # Agora a perseguição é a região, e a contagem dela começa do zero.
+        self.conversar("sei lá", "depois eu vejo", "kkkk")
+        self.assertEqual(self.memory.dodged_fields("lead-1"), {"region": 3})
+
+    def test_so_mensagem_do_lead_conta(self):
+        # Dez falas do agente não são dez perguntas ignoradas: sem resposta do
+        # lead, não houve esquiva nenhuma.
+        for _ in range(10):
+            self.memory.record_message("lead-1", "assistant", "e o orçamento?")
+
+        self.assertEqual(self.memory.dodged_fields("lead-1"), {})
+
+    def test_nome_e_email_nunca_sao_perseguidos(self):
+        # Nome vem de graça quando o lead se apresenta, e e-mail é alternativa
+        # ao telefone. Nenhum dos dois é perguntado, então nenhum dos dois pode
+        # ser contado como esquivado.
+        self.memory.update_profile("lead-1", {
+            "intencao": "COMPRA", "regiao": "Copacabana", "quartos": "3",
+            "preco_faixa": "500k", "urgencia": "alta", "telefone": "(21) 99999-9999",
+        })
+        self.conversar("oi", "bom dia", "tudo bem?", "kkkk", "e aí")
+
+        self.assertEqual(self.memory.dodged_fields("lead-1"), {})
+
+    def test_limiar_e_configuravel(self):
+        self.conversar("oi", "bom dia")
+        self.assertEqual(self.memory.dodged_fields("lead-1"), {})
+        self.assertIn("intent", self.memory.dodged_fields("lead-1", threshold=2))
+
+    def test_contexto_manda_parar_de_perguntar(self):
+        self.memory.update_profile("lead-1", {"intencao": "COMPRA"})
+        self.conversar("bom dia", "tudo bem?", "kkkk")
+
+        context = self.memory.build_context("lead-1", mask=False)
+
+        self.assertIn("O LEAD NÃO RESPONDEU SOBRE", context)
+        self.assertIn("região (3 mensagens)", context)
+        self.assertIn("Pare de perguntar isso", context)
+
+    def test_contexto_continua_apontando_o_que_falta(self):
+        # Regressão: com todos os campos marcados de uma vez, a linha "AINDA
+        # FALTA DESCOBRIR" sumia e o agente ficava sem próximo assunto.
+        self.memory.update_profile("lead-1", {"intencao": "COMPRA"})
+        self.conversar("bom dia", "tudo bem?", "kkkk")
+
+        context = self.memory.build_context("lead-1", mask=False)
+
+        self.assertIn("AINDA FALTA DESCOBRIR", context)
+        self.assertIn("quartos", context)
+
+    def test_contexto_nao_se_contradiz(self):
+        # Mandar "descubra a região" e "não insista na região" no mesmo prompt
+        # é instrução contraditória, e o modelo escolhe uma das duas ao acaso.
+        self.memory.update_profile("lead-1", {"intencao": "COMPRA"})
+        self.conversar("bom dia", "tudo bem?", "kkkk")
+
+        context = self.memory.build_context("lead-1", mask=False)
+        linha_faltando = context.split("AINDA FALTA DESCOBRIR:")[1].split("\n")[0]
+
+        self.assertNotIn("região", linha_faltando)
+
+    def test_estado_antigo_sem_o_campo_nao_quebra(self):
+        # Conversas gravadas antes deste recurso existir não têm "unanswered".
+        state = self.memory.state("lead-1")
+        del state["unanswered"]
+        self.memory.store.write("lead-1", state)
+
+        self.assertEqual(self.memory.dodged_fields("lead-1"), {})
+        self.memory.record_message("lead-1", "user", "oi")
 
 
 class TestContext(unittest.TestCase):
@@ -525,9 +633,9 @@ class TestTurnCycle(unittest.TestCase):
         self.assertEqual(turn.original_message, "sou o Pedro, pedro@x.com")
 
     def test_name_is_masked_on_the_introduction_itself(self):
-        # Regression: the name was only masked once it reached the profile, so
-        # it leaked in the clear to the LLM in exactly the message where the
-        # lead introduces themselves, the one that most needs protecting.
+        # Regressão: o nome só era mascarado depois de entrar no perfil, então
+        # vazava em claro para o LLM exatamente na mensagem em que o lead se
+        # apresenta, que é a que mais precisa de proteção.
         turn = self.memory.start_turn("lead-1", "Oi! Meu nome é João Pereira")
 
         self.assertNotIn("João", turn.message)
@@ -535,8 +643,8 @@ class TestTurnCycle(unittest.TestCase):
         self.assertIn("[NOME_1]", turn.message)
 
     def test_name_reaches_the_profile_even_though_masked_for_the_llm(self):
-        # Consequence of the test above: Person 1 reads "[NOME_1]" and extracts
-        # no name, so memory must extract it from the original text.
+        # Consequência do teste acima: a Pessoa 1 lê "[NOME_1]" e não extrai
+        # nome nenhum, então a memória precisa extrair do texto original.
         turn = self.memory.start_turn("lead-1", "Sou a Beatriz")
         self.memory.finish_turn(
             "lead-1", turn, "Prazer, [NOME_1]!", {"nome": "undefined"}
@@ -564,8 +672,8 @@ class TestTurnCycle(unittest.TestCase):
         self.assertNotIn("[", reply)
 
     def test_email_is_extracted_even_though_masked_for_the_llm(self):
-        # Person 1's extraction runs over masked text and is blind to e-mail
-        # and phone. Memory extracts from the original, which only it holds.
+        # A extração da Pessoa 1 roda sobre o texto mascarado e fica cega para
+        # e-mail e telefone. A memória extrai do original, que só ela tem.
         turn = self.memory.start_turn(
             "lead-1", "me chama no (21) 98765-4321 ou ana@x.com"
         )
@@ -581,7 +689,7 @@ class TestTurnCycle(unittest.TestCase):
         self.memory.update_profile("lead-1", {"nome": "Pedro"})
         turn = self.memory.start_turn("lead-1", "sim, sou o Pedro")
 
-        # Person 1 read "[NOME_1]" and returned that as the name.
+        # A Pessoa 1 leu "[NOME_1]" e devolveu isso como nome.
         self.memory.finish_turn("lead-1", turn, "ok", {"nome": "[NOME_1]"})
 
         self.assertEqual(self.memory.profile("lead-1")["name"], "Pedro")
@@ -602,9 +710,9 @@ class TestTurnCycle(unittest.TestCase):
         self.assertNotIn("[EMAIL_2]", t2.message)
 
     def test_turn_mapping_covers_history_and_context(self):
-        # Regression: history and context were masked against their own maps,
-        # so aliases they created never came back in the turn and the LLM reply
-        # would reach the lead with a raw "[EMAIL_1]".
+        # Regressão: histórico e contexto eram mascarados contra mapas
+        # próprios, então apelidos criados por eles não voltavam no turno e a
+        # resposta do LLM chegaria ao lead com "[EMAIL_1]" cru.
         t1 = self.memory.start_turn("lead-1", "meu email é bia@x.com")
         self.memory.finish_turn("lead-1", t1, "ok", {})
 
@@ -642,7 +750,7 @@ class TestLGPD(unittest.TestCase):
         self.assertTrue(self.memory.forget("lead-1"))
         self.assertFalse(self.memory.exists("lead-1"))
         self.assertEqual(self.memory.profile("lead-1"), {})
-        # The alias map holds PII in the clear; it goes too.
+        # O mapa de apelidos guarda PII em claro; some junto.
         self.assertEqual(self.memory.state("lead-1")["alias_map"], {})
 
     def test_forget_a_nonexistent_lead(self):

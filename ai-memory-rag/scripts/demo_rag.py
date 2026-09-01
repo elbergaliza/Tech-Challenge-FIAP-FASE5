@@ -1,12 +1,12 @@
 """
-RAG demo over the three scenarios from the challenge brief.
+Demonstração do RAG nos cenários do PDF do desafio.
 
     python ai-memory-rag/scripts/demo_rag.py
     python ai-memory-rag/scripts/demo_rag.py --embedder gemini
 
-Each scenario enters through the exact `dados_coletados` shape Person 1's agent
-returns, and the output shows the text block that gets injected into the LLM
-prompt. That block is the seam between Part 1 and Part 2.
+Cada cenário entra pelo formato exato de `dados_coletados` que o agente da
+Pessoa 1 devolve, e a saída mostra o bloco de texto que será injetado no prompt
+do LLM. É essa a costura entre a Parte 1 e a Parte 2.
 """
 
 import argparse
@@ -22,7 +22,7 @@ from rag.embeddings import get_embedder, load_env     # noqa: E402
 
 SCENARIOS = [
     {
-        "name": "Scenario 1 from the brief: buying in the south zone",
+        "name": "Cenário 1 do PDF: compra na zona sul",
         "message": "Estou procurando apartamento na zona sul, 3 quartos, é urgente",
         "data": {
             "nome": "João",
@@ -37,7 +37,7 @@ SCENARIOS = [
         "extra": {},
     },
     {
-        "name": "Scenario 2 from the brief: investor profile",
+        "name": "Cenário 2 do PDF: perfil investidor",
         "message": "Quero investir em imóveis para renda, tenho cerca de 1 milhão",
         "data": {
             "nome": "Marina",
@@ -50,7 +50,7 @@ SCENARIOS = [
         "extra": {"expected_return": "espero uns 6% ao ano"},
     },
     {
-        "name": "Rental with a radius search",
+        "name": "Aluguel com busca por raio",
         "message": "Procuro para alugar perto do Leblon, 2 quartos, até 6 mil",
         "data": {
             "intencao": "ALUGUEL",
@@ -62,7 +62,7 @@ SCENARIOS = [
         "extra": {"radius_km": 4},
     },
     {
-        "name": "Impossible profile: 4 bedrooms in Leblon for 300k",
+        "name": "Perfil impossível: 4 quartos no Leblon por 300 mil",
         "message": "Quero comprar 4 quartos no Leblon, meu limite é 300 mil",
         "data": {
             "intencao": "COMPRA",
@@ -73,7 +73,7 @@ SCENARIOS = [
         "extra": {},
     },
     {
-        "name": "First message, nothing extracted yet",
+        "name": "Primeira mensagem, nada extraído ainda",
         "message": "Oi, tudo bem?",
         "data": {
             "nome": "undefined",
@@ -88,7 +88,7 @@ SCENARIOS = [
 
 
 def _main():
-    parser = argparse.ArgumentParser(description="Property RAG demo.")
+    parser = argparse.ArgumentParser(description="Demo do RAG de imóveis.")
     parser.add_argument("--embedder", choices=["gemini", "hashing"], default="hashing")
     parser.add_argument("--top-k", type=int, default=3)
     args = parser.parse_args()
@@ -100,7 +100,7 @@ def _main():
     index = indexer.build_index(properties, embedder)
 
     print("=" * 78)
-    print("PROPERTY RAG  |  %d properties  |  embedder=%s  |  dim=%d"
+    print("RAG DE IMÓVEIS  |  %d imóveis  |  embedder=%s  |  dim=%d"
           % (len(index), index.embedder_name, index.dim))
     print("=" * 78)
 
@@ -113,12 +113,12 @@ def _main():
 
         print()
         print("### %s" % scenario["name"])
-        print("Lead says: %s" % scenario["message"])
-        print("Derived filters: %r" % filters)
-        print("Candidates after filtering: %d" % result.candidate_count)
+        print("Lead diz: %s" % scenario["message"])
+        print("Filtros derivados: %r" % filters)
+        print("Candidatos após o filtro: %d" % result.candidate_count)
 
         if result.relaxations:
-            print("Relaxation steps applied:")
+            print("Relaxamentos aplicados:")
             for description in result.relaxations:
                 print("   - %s" % description)
 

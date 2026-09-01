@@ -1,16 +1,16 @@
 """
-Demo of the broker summary and the automatic follow-up.
+Demonstração do resumo para o corretor e do follow-up automático.
 
     python ai-memory-rag/scripts/demo_broker.py
 
-Runs offline: with no GEMINI_API_KEY both modules take the heuristic path, which
-is exactly what needs to be seen working, because it is what shows up if the API
-goes down during the presentation.
+Roda offline: sem GEMINI_API_KEY os dois módulos usam o caminho heurístico, que
+é justamente o que precisa ser visto funcionando, porque é o que aparece se a
+API cair durante a apresentação.
 
-Shows three things:
-  1. the pipeline ordered by temperature, which is the dashboard list;
-  2. the full card for one lead;
-  3. the follow-up ladder for a lead who went quiet, over two weeks.
+Mostra três coisas:
+  1. a carteira ordenada por temperatura, que é a lista do dashboard;
+  2. o card completo de um lead;
+  3. a escada de follow-up de um lead que sumiu, ao longo de duas semanas.
 """
 
 import io
@@ -107,10 +107,10 @@ def main():
     client = get_client()
     summarizer = Summarizer(client=client)
 
-    print("LLM client: %s" % ("available: " + client.name if client.available
-                              else "unavailable (%s)" % client.reason))
+    print("Cliente LLM: %s" % ("disponível: " + client.name if client.available
+                                else "indisponível (%s)" % client.reason))
 
-    # -- properties for the hottest lead -----------------------------------
+    # -- imóveis para o lead mais quente -----------------------------------
 
     embedder = HashingEmbedder()
     index = indexer.build_index(indexer.load_properties(), embedder)
@@ -120,9 +120,9 @@ def main():
     )
     memory.record_shown_properties("lead-ana", [r.id for r in result])
 
-    # -- 1. dashboard list --------------------------------------------------
+    # -- 1. lista do dashboard ----------------------------------------------
 
-    rule("1. BROKER PIPELINE (ordered by temperature)")
+    rule("1. CARTEIRA DO CORRETOR (ordenada por temperatura)")
     for summary in summarize_pipeline(memory, summarizer):
         print("\n%-8s %-14s score %3d   %s" % (
             TEMPERATURE_LABELS[summary.temperature], summary.lead_id,
@@ -131,20 +131,20 @@ def main():
         for alert in summary.alerts:
             print("         ! %s" % alert)
 
-    # -- 2. one lead's card -------------------------------------------------
+    # -- 2. card de um lead -------------------------------------------------
 
-    rule("2. CARD FOR THE HOTTEST LEAD")
+    rule("2. CARD DO LEAD MAIS QUENTE")
     summary = summarizer.summarize_for_broker(memory, "lead-ana")
     print()
     print(summary.to_markdown())
 
-    print("\nHow the score was formed:")
+    print("\nComo o score foi formado:")
     for factor in summary.factors:
         print("  %s" % factor)
 
-    # -- 3. follow-up ladder -------------------------------------------------
+    # -- 3. escada de follow-up ----------------------------------------------
 
-    rule("3. FOLLOW-UP FOR A LEAD WHO WENT QUIET (lead-carlos, 2 weeks)")
+    rule("3. FOLLOW-UP DE UM LEAD QUE SUMIU (lead-carlos, 2 semanas)")
     generator = FollowUpGenerator(client=client)
 
     for day in range(0, 15):
@@ -155,24 +155,24 @@ def main():
             continue
 
         followup = generator.send(memory, "lead-carlos")
-        print("\nDay %d  ·  attempt %d  ·  tone '%s'  ·  channel %s  ·  %s"
+        print("\nDia %d  ·  tentativa %d  ·  tom '%s'  ·  canal %s  ·  %s"
               % (day + 1, followup.attempt, followup.tone, followup.channel,
                  followup.source))
         print("   \"%s\"" % followup.text)
 
-    print("\nAfter the third one, the agent stops on its own:")
+    print("\nDepois da terceira, o agente para sozinho:")
     print("   %s" % evaluate_followup(memory, "lead-carlos").reason)
 
-    # -- 4. what blocks a send ----------------------------------------------
+    # -- 4. o que impede o envio ---------------------------------------------
 
-    rule("4. WHEN THE AGENT DOES NOT SEND")
+    rule("4. QUANDO O AGENTE NÃO ENVIA")
     clock.advance(days=10)
 
-    print("\nlead-anonimo (never gave consent):")
+    print("\nlead-anonimo (nunca deu consentimento):")
     print("   %s" % evaluate_followup(memory, "lead-anonimo").reason)
 
     memory.record_message("lead-ana", "user", "já comprei outro, obrigado")
-    print("\nlead-ana (said they already bought):")
+    print("\nlead-ana (disse que já comprou):")
     print("   %s" % evaluate_followup(memory, "lead-ana").reason)
 
     print()

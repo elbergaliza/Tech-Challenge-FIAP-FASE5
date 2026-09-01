@@ -1,18 +1,18 @@
 """
-Demo of conversational memory with pseudonymisation and RAG.
+Demonstração da memória conversacional com pseudonimização e RAG.
 
     python ai-memory-rag/scripts/demo_memory.py
 
-Simulates a multi-session conversation without calling Gemini: the agent
-replies are canned and written with aliases, exactly as the model would produce
-them after receiving masked text. The point is to make visible what is normally
-hidden:
+Simula uma conversa de várias sessões sem chamar o Gemini: as respostas do
+agente são fixas e escritas com apelidos, exatamente como o modelo as produziria
+depois de receber o texto mascarado. O objetivo é tornar visível o que
+normalmente fica escondido:
 
-  * what the lead wrote (in the clear, ours only);
-  * what actually leaves for the LLM (pseudonymised);
-  * what the lead gets back (restored);
-  * how the profile accumulates without regressing;
-  * what memory injects into the prompt on each turn.
+  * o que o lead escreveu (em claro, só nosso);
+  * o que de fato sai para o LLM (pseudonimizado);
+  * o que o lead recebe de volta (restaurado);
+  * como o perfil se acumula sem regredir;
+  * o que a memória injeta no prompt em cada turno.
 """
 
 import io
@@ -28,8 +28,8 @@ from rag.embeddings import HashingEmbedder                                # noqa
 
 LEAD = "lead-demo-01"
 
-# Per turn: what the lead says, what Person 1's extraction would return, and the
-# reply the LLM would produce from the MASKED text.
+# Por turno: o que o lead diz, o que a extração da Pessoa 1 devolveria, e a
+# resposta que o LLM produziria a partir do texto MASCARADO.
 TURNS = [
     {
         "lead": "Oi! Meu nome é João Pereira, quero comprar um apartamento",
@@ -41,9 +41,8 @@ TURNS = [
     },
     {
         "lead": "Estou olhando Copacabana, preciso de 3 quartos",
-        # Person 1's extraction regresses here: the name is no longer in the
-        # recent text and falls back to "undefined". This is exactly what
-        # memory protects against.
+        # A extração da Pessoa 1 regride aqui: o nome sai do texto recente e
+        # volta a "undefined". É exatamente disto que a memória protege.
         "extracted": {
             "nome": "undefined", "intencao": "COMPRA", "preco_faixa": "undefined",
             "regiao": "Copacabana", "quartos": "3", "urgencia": "baixa",
@@ -83,27 +82,27 @@ def main():
     index = indexer.build_index(indexer.load_properties(), embedder)
 
     print("=" * 78)
-    print("CONVERSATIONAL MEMORY + PSEUDONYMISATION + RAG")
+    print("MEMÓRIA CONVERSACIONAL + PSEUDONIMIZAÇÃO + RAG")
     print("=" * 78)
 
     memory.record_consent(LEAD, True, "atendimento imobiliário e follow-up")
-    print("\nConsent recorded: %s" % memory.has_consent(LEAD))
+    print("\nConsentimento registrado: %s" % memory.has_consent(LEAD))
 
     for number, spec in enumerate(TURNS, start=1):
-        rule("TURN %d" % number)
+        rule("TURNO %d" % number)
 
-        print("\n[1] The lead wrote (in the clear, never leaves here):")
+        print("\n[1] O lead escreveu (em claro, nunca sai daqui):")
         print("    %s" % spec["lead"])
 
         turn = memory.start_turn(LEAD, spec["lead"])
 
-        print("\n[2] What LEAVES for Gemini (pseudonymised):")
-        print("    message: %s" % turn.message)
+        print("\n[2] O que SAI para o Gemini (pseudonimizado):")
+        print("    mensagem: %s" % turn.message)
         if turn.context:
             for line in turn.context.splitlines():
-                print("    context| %s" % line)
+                print("    contexto| %s" % line)
         else:
-            print("    context| (empty, first turn)")
+            print("    contexto| (vazio, primeiro turno)")
 
         if spec.get("search"):
             profile = memory.profile(LEAD)
@@ -111,53 +110,53 @@ def main():
                 index, profile, spec["lead"], embedder=embedder, top_k=3
             )
             memory.record_shown_properties(LEAD, [r.id for r in result])
-            print("    rag     | %d properties found: %s"
+            print("    rag     | %d imóveis encontrados: %s"
                   % (len(result), ", ".join(r.id for r in result)))
 
-        print("\n[3] Gemini replies (still with aliases):")
+        print("\n[3] O Gemini responde (ainda com apelidos):")
         print("    %s" % spec["llm"])
 
         reply, changes = memory.finish_turn(LEAD, turn, spec["llm"], spec["extracted"])
 
-        print("\n[4] What the LEAD receives (restored):")
+        print("\n[4] O que o LEAD recebe (restaurado):")
         print("    %s" % reply)
 
         if changes:
-            print("\n[5] Profile updated:")
+            print("\n[5] Perfil atualizado:")
             for change in changes:
                 if change["kind"] == "correction":
-                    print("    ~ %s: %s -> %s (lead corrected themselves)"
+                    print("    ~ %s: %s -> %s (lead se corrigiu)"
                           % (change["field"], change["from"], change["to"]))
                 else:
                     print("    + %s: %s" % (change["field"], change["to"]))
 
-    # -- what memory preserved ---------------------------------------------
+    # -- o que a memória preservou -----------------------------------------
 
-    rule("ACCUMULATED PROFILE")
+    rule("PERFIL ACUMULADO")
     for field, value in memory.profile(LEAD).items():
         print("  %-12s %s" % (field + ":", value))
 
-    print("\nThe 'name' field survived turns 2, 3 and 4, where Person 1's")
-    print("extraction returned 'undefined'. Without memory the agent would")
-    print("have asked the lead's name all over again.")
+    print("\nO campo 'name' sobreviveu aos turnos 2, 3 e 4, nos quais a extração")
+    print("da Pessoa 1 devolveu 'undefined'. Sem memória, o agente teria")
+    print("perguntado o nome do lead outra vez.")
 
-    rule("PROPERTIES ALREADY SHOWN")
+    rule("IMÓVEIS JÁ APRESENTADOS")
     print("  %s" % ", ".join(memory.shown_properties(LEAD)))
 
-    rule("LOG (no personal data)")
+    rule("LOG (sem dado pessoal)")
     print("  %s" % memory.log_summary(LEAD))
 
     # -- LGPD ---------------------------------------------------------------
 
     rule("LGPD")
     package = memory.export(LEAD)
-    print("  Right of access: %d messages, %d profile fields, consent on %s"
+    print("  Direito de acesso: %d mensagens, %d campos de perfil, consentimento em %s"
           % (len(package["messages"]), len(package["profile"]),
              package["consent"]["at"][:10]))
 
     memory.forget(LEAD)
-    print("  Right to erasure: wiped. Profile now: %r" % memory.profile(LEAD))
-    print("  Alias map (used to hold PII in the clear): %r"
+    print("  Direito de exclusão: apagado. Perfil agora: %r" % memory.profile(LEAD))
+    print("  Mapa de pseudônimos (guardava PII em claro): %r"
           % memory.state(LEAD)["alias_map"])
 
     print()

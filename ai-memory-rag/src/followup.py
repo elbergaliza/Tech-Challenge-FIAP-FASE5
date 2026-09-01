@@ -1,36 +1,34 @@
 """
-Automatic follow-up: when to reach back out, and what to say.
+Follow-up automático: quando retomar o contato e o que dizer.
 
-Responsibility split agreed with Person 3: she schedules and dispatches, this
-module decides IF a message should go out and writes WHAT it says.
-`leads_due_for_followup()` is the query `backend/src/jobs/followup_scheduler.py`
-runs.
+Divisão de responsabilidade combinada com a Pessoa 3: ela agenda e dispara,
+este módulo decide SE deve enviar e escreve O QUE dizer. O
+`leads_due_for_followup()` é a consulta que o
+`backend/src/jobs/followup_scheduler.py` roda.
 
-Scenario 3 of the challenge brief: the lead started a conversation and vanished.
-The agent must reach back out on its own, keeping context and re-engaging. The
-two hard parts are silence and excess.
+Cenário 3 do PDF do desafio: o lead começou a conversa e sumiu. O agente deve
+retomar sozinho, mantendo o contexto e reengajando. As duas partes difíceis são
+o silêncio e o excesso.
 
-WHEN (escalating cadence). One attempt after 24h, another after 3 days, a last
-one after 7 days, then stop. A lead who declared urgency gets a shorter cadence,
-because someone who needs to move in two weeks will not wait three days for a
-reply.
+QUANDO (cadência com escalonamento). Uma tentativa depois de 24h, outra depois
+de 3 dias, a última depois de 7 dias, e para. Lead com urgência declarada recebe
+cadência mais curta, porque quem precisa mudar em duas semanas não espera três
+dias por uma resposta.
 
-WHEN NOT. This is the half that usually gets forgotten, and it is what separates
-follow-up from spam:
-  * no consent recorded, no message (LGPD art. 8);
-  * if the lead asked to stop, never again;
-  * if the lead replied after the last follow-up, the counter resets;
-  * once the attempt ceiling is reached, close out and hand the lead back to the
-    broker.
+QUANDO NÃO. Esta é a metade que costuma ser esquecida, e é a que separa
+follow-up de spam:
+  * sem consentimento registrado, não envia (LGPD art. 8º);
+  * se o lead pediu para parar, não envia nunca mais;
+  * se o lead respondeu depois do último follow-up, o contador zera;
+  * atingido o teto de tentativas, encerra e devolve o lead ao corretor.
 
-WHAT TO SAY. Three tones, one per attempt: light re-opener, offer of something
-new, polite sign-off with the door left open. Each uses memory to cite what the
-lead actually said, rather than generic filler. With an LLM the text is written
-on the spot; without one, a template filled from the profile. Either way,
-`source` records the origin.
+O QUE DIZER. Três tons, um por tentativa: retomada leve, oferta de novidade,
+despedida com porta aberta. Cada um usa a memória para citar o que o lead disse,
+não um texto genérico. Com LLM o texto é escrito na hora; sem LLM, um molde
+preenchido com o perfil. Nos dois casos, `source` registra a origem.
 
-NOTE ON LANGUAGE: identifiers, field names and enum values are in English.
-Prompts, templates and every message the lead reads stay in Portuguese.
+IDIOMA: identificadores, nomes de campo e valores de enum estão em inglês.
+Prompts, moldes e toda mensagem que o lead lê ficam em português.
 """
 
 import lead_profile
@@ -39,18 +37,18 @@ from llm import get_client
 from privacy import Pseudonymizer
 
 # ---------------------------------------------------------------------------
-# Cadence
+# Cadência
 # ---------------------------------------------------------------------------
-# Hours of silence required before attempts 1, 2 and 3. The tuple length is the
-# attempt ceiling.
+# Horas de silêncio exigidas antes da 1ª, 2ª e 3ª tentativa. O tamanho da tupla
+# é o teto de tentativas.
 DEFAULT_CADENCE = (24, 72, 168)
 URGENT_CADENCE = (4, 24, 72)
 
 TONES = ("reopen", "offer", "signoff")
 
-# Opt-out phrases. Any of them blocks follow-up forever: pushing someone who
-# asked you to stop destroys the brand and, under the LGPD, is processing with
-# no legal basis once consent is withdrawn.
+# Frases de recusa. Qualquer uma bloqueia follow-up para sempre: insistir com
+# quem pediu para parar destrói a marca e, sob a LGPD, é tratamento sem base
+# legal depois da revogação do consentimento.
 OPT_OUT_PHRASES = (
     "não quero", "nao quero", "pare de", "para de me", "não me manda",
     "nao me manda", "não tenho interesse", "nao tenho interesse",
@@ -60,14 +58,14 @@ OPT_OUT_PHRASES = (
 )
 
 # ---------------------------------------------------------------------------
-# Decision
+# Decisão
 # ---------------------------------------------------------------------------
 
 def detect_opt_out(memory, lead_id):
-    """True if the lead ever asked not to be contacted again.
+    """Verdadeiro se o lead pediu, em algum momento, para não ser mais contatado.
 
-    Scans only the lead's own messages. An agent line such as "me avisa se não
-    quiser mais receber" must not trip the block.
+    Varre só as mensagens do lead. Uma frase do agente como "me avisa se não
+    quiser mais receber" não pode disparar o bloqueio.
     """
     for message in memory.state(lead_id)["messages"]:
         if message["role"] != "user":
@@ -113,12 +111,13 @@ class FollowUpDecision:
 
 
 def evaluate_followup(memory, lead_id, require_consent=True):
-    """Decide whether a follow-up is due now. Never raises.
+    """Decide se cabe follow-up agora. Nunca levanta exceção.
 
-    Always returns a FollowUpDecision with a plain-text reason, so Person 3's
-    job can log why it skipped a lead without reimplementing the rule.
+    Devolve sempre um FollowUpDecision com o motivo em texto, para que o job da
+    Pessoa 3 possa logar por que pulou um lead sem precisar reimplementar a
+    regra.
 
-    Reason strings are Portuguese: they end up in logs the team reads.
+    Os motivos ficam em português: acabam em logs que o time lê.
     """
     state = memory.state(lead_id)
     profile = memory.profile(lead_id)
@@ -141,9 +140,9 @@ def evaluate_followup(memory, lead_id, require_consent=True):
             False, "teto de %d tentativas atingido" % len(cadence), attempt=sent
         )
 
-    # `followups_sent` counts only consecutive attempts with no reply:
-    # memory resets it when the lead speaks again. So this index is always the
-    # next attempt of the current silence cycle.
+    # `followups_sent` conta só as tentativas consecutivas sem resposta: a
+    # memória o zera quando o lead volta a falar. Então este índice é sempre a
+    # próxima tentativa do ciclo de silêncio atual.
     wait = cadence[sent]
 
     if silence < wait:
@@ -165,10 +164,10 @@ def evaluate_followup(memory, lead_id, require_consent=True):
 
 
 def leads_due_for_followup(memory, require_consent=True):
-    """Leads that should receive a follow-up right now.
+    """Leads que devem receber follow-up agora.
 
-    Entry point for Person 3's scheduled job. Returns filtered
-    `(lead_id, decision)` pairs, ordered from most to least silent.
+    Ponto de entrada do job agendado da Pessoa 3. Devolve pares
+    `(lead_id, decision)` já filtrados, ordenados do mais silencioso ao menos.
     """
     due = []
 
@@ -184,14 +183,14 @@ def leads_due_for_followup(memory, require_consent=True):
 # ---------------------------------------------------------------------------
 # Prompts
 # ---------------------------------------------------------------------------
-# Prompt decisions for follow-up, the highest-risk text in the system: it
-# arrives unrequested, and a bad one gets the agency blocked.
-#   * explicit and aggressive length limit, because the channel is WhatsApp;
-#   * no generic greeting: the value is in citing what the lead actually said;
-#   * at most ONE question, so the lead has an easy answer to give;
-#   * ban on inventing properties or commercial terms;
-#   * the tone enters as a full instruction per attempt rather than a loose
-#     adjective, so the model does not write the same message three times.
+# Decisões de prompt para follow-up, que é o texto de maior risco do sistema:
+# chega sem ser pedido, e um texto ruim faz o lead bloquear a imobiliária.
+#   * limite de tamanho explícito e agressivo, porque o canal é WhatsApp;
+#   * proibição de saudação genérica: o valor está em citar o que o lead disse;
+#   * no máximo UMA pergunta, para o lead ter uma resposta fácil de dar;
+#   * proibição de inventar imóvel ou condição comercial;
+#   * o tom entra como instrução completa por tentativa, e não como adjetivo
+#     solto, para o modelo não escrever três vezes a mesma mensagem.
 
 TONE_INSTRUCTIONS = {
     "reopen": (
@@ -234,7 +233,7 @@ Responda apenas com o texto da mensagem, sem aspas e sem comentários."""
 
 
 # ---------------------------------------------------------------------------
-# Generation
+# Geração
 # ---------------------------------------------------------------------------
 
 class FollowUp:
@@ -264,7 +263,7 @@ class FollowUp:
 
 
 def suggested_channel(profile):
-    """Where to reach the lead. Phone before e-mail: this is WhatsApp."""
+    """Por onde falar com o lead. Telefone antes de e-mail: é WhatsApp."""
     if is_known((profile or {}).get("phone")):
         return "whatsapp"
     if is_known((profile or {}).get("email")):
@@ -281,12 +280,12 @@ class FollowUpGenerator:
 
     def generate(self, memory, lead_id, new_properties=None, require_consent=True,
                  decision=None):
-        """Produce the re-engagement message, or None if it is not time yet.
+        """Produz a mensagem de retomada, ou None se não for hora de enviar.
 
-        `new_properties` are RAG recommendations found since the last
-        conversation: they are what gives the second attempt substance. Without
-        them the "offer" follow-up degenerates into the usual "still
-        interested?".
+        `new_properties` são recomendações do RAG obtidas depois da última
+        conversa: é o que dá substância à segunda tentativa. Sem elas, o
+        follow-up de "oferta" degenera no mesmo "ainda tem interesse?" de
+        sempre.
         """
         decision = decision or evaluate_followup(memory, lead_id, require_consent)
         if not decision.send:
@@ -313,10 +312,10 @@ class FollowUpGenerator:
         )
 
     def send(self, memory, lead_id, new_properties=None, require_consent=True):
-        """Generate the follow-up and record it in memory.
+        """Gera e registra o follow-up na memória.
 
-        Recording is what advances the cadence. The message enters the history
-        as an agent turn, so it does NOT reset the lead's silence counter.
+        Registrar é o que faz a cadência avançar. A mensagem entra no histórico
+        como fala do agente, então NÃO zera o contador de silêncio do lead.
         """
         followup = self.generate(memory, lead_id, new_properties, require_consent)
         if not followup:
@@ -360,12 +359,12 @@ class FollowUpGenerator:
 
 
 # ---------------------------------------------------------------------------
-# Prompt context
+# Contexto para o prompt
 # ---------------------------------------------------------------------------
 
-# Fields worth putting in the prompt. E-mail and phone are left out on
-# purpose: the follow-up text should never recite the lead's own contact
-# details back at them.
+# Campos que vale colocar no prompt. E-mail e telefone ficam de fora de
+# propósito: o texto do follow-up nunca deve recitar de volta ao lead os
+# próprios dados de contato dele.
 _PROMPT_FIELDS = ("name", "intent", "price_range", "region", "bedrooms", "urgency")
 
 
@@ -431,13 +430,13 @@ def _last_lead_message(state):
 
 
 # ---------------------------------------------------------------------------
-# Heuristic path
+# Caminho heurístico
 # ---------------------------------------------------------------------------
-# Templates used when there is no LLM. Deliberately short and concrete: a
-# generic template ("ainda tem interesse?") would be worse than sending nothing.
+# Moldes usados quando não há LLM. Propositalmente curtos e concretos: um molde
+# genérico ("ainda tem interesse?") seria pior do que não enviar nada.
 
 def _profile_fragment(profile):
-    """The snippet that proves to the lead this is not a mass blast."""
+    """Trecho que prova ao lead que a mensagem não é disparo em massa."""
     parts = []
     if is_known(profile.get("bedrooms")):
         parts.append("%s quartos" % profile["bedrooms"])
@@ -473,7 +472,7 @@ def _heuristic_text(profile, tone, new_properties=None):
         return ("%s Sei que a rotina corre. Se quiser, eu separo algumas opções "
                 "e te mando sem compromisso. Topa?" % greeting)
 
-    # signoff
+    # despedida
     return ("%s Não quero insistir, então vou parar por aqui. "
             "Se voltar a procurar imóvel, é só me chamar que retomo de onde "
             "paramos. Sucesso!" % greeting)

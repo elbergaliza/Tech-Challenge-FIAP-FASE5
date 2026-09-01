@@ -1,34 +1,34 @@
 """
-Conversational memory for the SDR agent.
+Memória conversacional do agente SDR.
 
-Two layers, because a WhatsApp conversation does not fit whole into a prompt:
+Duas camadas, porque conversa de WhatsApp não cabe inteira num prompt:
 
-  SHORT WINDOW   the last N messages, verbatim. This is what makes the agent
-                 sound natural: it remembers what was said two turns ago.
+  JANELA CURTA   as últimas N mensagens, literais. É o que dá naturalidade: o
+                 agente lembra o que foi dito há dois turnos.
 
-  LONG MEMORY    the consolidated lead profile, an incremental conversation
-                 summary and the properties already shown. This is what gives
-                 continuity across sessions, including after days of silence,
-                 which is exactly scenario 3 of the challenge brief (follow-up).
+  MEMÓRIA LONGA  o perfil consolidado do lead, um resumo incremental da conversa
+                 e os imóveis já apresentados. É o que dá continuidade entre
+                 sessões, inclusive depois de dias de silêncio, que é exatamente
+                 o cenário 3 do PDF do desafio (follow-up).
 
-The concrete gain over the agent alone: Person 1's extraction is STATELESS. It
-runs regex over the concatenated conversation on every call, so an already
-discovered field can fall back to "undefined" once the text grows and the
-pattern stops matching. Here the profile is MONOTONIC: once known, a field only
-changes to another known value (the lead corrected themselves), never back to
-unknown. The correction is recorded, because "the lead changed their mind about
-the budget" is information the broker wants to see.
+O ganho concreto sobre o agente sozinho: a extração da Pessoa 1 é SEM ESTADO.
+Ela roda regex sobre a conversa concatenada a cada chamada, então um campo já
+descoberto pode voltar a "undefined" quando o texto cresce e o padrão deixa de
+casar. Aqui o perfil é MONOTÔNICO: uma vez conhecido, um campo só muda para
+outro valor conhecido (o lead se corrigiu), nunca de volta para desconhecido. A
+correção fica registrada, porque "o lead mudou de ideia sobre o orçamento" é
+informação que o corretor quer ver.
 
-Privacy (LGPD): whatever leaves here for the LLM goes through pseudonymisation,
-and the alias map is kept in the session so the same e-mail always gets the same
-alias. The module also implements time-based retention (Storage Limitation
-principle), `forget()` (right to erasure) and `export()` (right of access and
-portability).
+Privacidade (LGPD): o que sai daqui rumo ao LLM passa por pseudonimização, e o
+mapa de apelidos fica guardado na sessão para que o mesmo e-mail tenha sempre o
+mesmo apelido. O módulo também implementa retenção por prazo (princípio da
+Limitação de Armazenamento), `forget()` (direito de exclusão) e `export()`
+(direito de acesso e portabilidade).
 
-NOTE ON LANGUAGE: identifiers, state keys and profile keys are in English.
-Person 1's Portuguese `dados_coletados` is translated once, at the edge, by
-`lead_profile.from_agent()`. The prompt context text stays in Portuguese
-because the LLM reads it alongside a Portuguese prompt.
+IDIOMA: identificadores, chaves de estado e chaves de perfil estão em inglês. O
+`dados_coletados` em português da Pessoa 1 é traduzido uma vez, na borda, pelo
+`lead_profile.from_agent()`. O texto de contexto do prompt fica em português
+porque o LLM o lê ao lado de um prompt em português.
 """
 
 import json
@@ -37,20 +37,22 @@ import re
 from datetime import datetime, timedelta, timezone
 
 import lead_profile
-from lead_profile import PII_FIELDS, PROFILE_FIELDS, is_known
+from lead_profile import (
+    DODGE_THRESHOLD, PII_FIELDS, PROFILE_FIELDS, is_known, next_to_collect,
+)
 from privacy import PATTERNS, Pseudonymizer, detect_names, mask_for_log
 
 STATE_VERSION = 1
 
-# Mirrors the cut Person 1 already applies in `historico[-10:]`.
+# Espelha o corte que a Pessoa 1 já faz em `historico[-10:]`.
 DEFAULT_WINDOW = 10
 
-# Past this point the older conversation should become a summary, so the prompt
-# does not grow without bound. The summarizer produces it; memory only signals.
+# A partir daqui a conversa antiga deveria virar resumo, para o prompt não
+# crescer sem limite. Quem produz o resumo é o summarizer; a memória só avisa.
 SUMMARY_THRESHOLD = 20
 
-# Default retention. The LGPD sets no fixed term, it requires no longer than
-# necessary for the purpose; six months is common practice for a cold sales lead.
+# Retenção padrão. A LGPD não fixa prazo, exige que seja o necessário para a
+# finalidade; seis meses é o que se costuma praticar para lead comercial frio.
 DEFAULT_RETENTION_DAYS = 180
 
 _VALID_LEAD_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -65,14 +67,14 @@ def _iso(moment):
 
 
 def validate_lead_id(lead_id):
-    """The lead id becomes a filename, so it cannot arrive raw from the API.
+    """O lead_id vira nome de arquivo, então não pode vir cru da API.
 
-    Without this, a lead id like "../../.env" would make the store read and
-    write outside the data directory.
+    Sem isto, um lead_id como "../../.env" faria o store ler e escrever fora do
+    diretório de dados.
     """
     if not isinstance(lead_id, str) or not _VALID_LEAD_ID.match(lead_id):
         raise ValueError(
-            "invalid lead_id: %r. Allowed: letters, digits, '_' and '-', up to 64 chars."
+            "lead_id inválido: %r. Aceito: letras, dígitos, '_' e '-', até 64 chars."
             % (lead_id,)
         )
 
@@ -80,11 +82,11 @@ def validate_lead_id(lead_id):
 
 
 # ---------------------------------------------------------------------------
-# Persistence
+# Persistência
 # ---------------------------------------------------------------------------
 
 class InMemoryStore:
-    """Volatile store. Used in tests and demos."""
+    """Store volátil. Usado nos testes e em demo."""
 
     def __init__(self):
         self._data = {}
@@ -104,14 +106,14 @@ class InMemoryStore:
 
 
 class JsonFileStore:
-    """One JSON file per lead.
+    """Um arquivo JSON por lead.
 
-    One file per lead rather than a single file with all of them, for two
-    reasons: `forget()` becomes `os.remove` and the data is genuinely gone, and
-    writing one lead does not rewrite the whole base.
+    Um arquivo por lead, e não um arquivo único com todos, por dois motivos:
+    `forget()` vira `os.remove` e o dado some de verdade, e escrever um lead não
+    reescreve a base inteira.
 
-    For production Person 3 implements the same interface over the database;
-    nothing else in the module changes.
+    Para produção a Pessoa 3 implementa a mesma interface sobre o banco; nada
+    mais no módulo precisa mudar.
     """
 
     def __init__(self, directory):
@@ -131,8 +133,8 @@ class JsonFileStore:
 
     def write(self, lead_id, state):
         path = self._path(lead_id)
-        # Atomic write: a Ctrl+C halfway through must not leave truncated JSON
-        # where the lead's history used to be.
+        # Escrita atômica: um Ctrl+C no meio não pode deixar JSON truncado no
+        # lugar do histórico do lead.
         temporary = path + ".tmp"
 
         with open(temporary, "w", encoding="utf-8") as handle:
@@ -158,15 +160,15 @@ class JsonFileStore:
 
 
 # ---------------------------------------------------------------------------
-# Turn
+# Turno
 # ---------------------------------------------------------------------------
 
 class PreparedTurn:
-    """Everything the agent needs to answer one turn, already pseudonymised.
+    """O que o agente precisa para responder um turno, já pseudonimizado.
 
-    It exists so masking and restoring are always a pair. Calling the LLM with
-    masked text and forgetting to restore would show the lead "[NOME_1]" on
-    screen; the `start_turn` / `finish_turn` pair makes that hard to get wrong.
+    Existe para que mascarar e restaurar sejam sempre um par. Chamar o LLM com
+    texto mascarado e esquecer de restaurar faria o lead receber "[NOME_1]" na
+    tela; o par `start_turn` / `finish_turn` torna isso difícil de errar.
     """
 
     def __init__(self, lead_id, message, original_message, history, context, mapping):
@@ -179,7 +181,7 @@ class PreparedTurn:
 
 
 # ---------------------------------------------------------------------------
-# Memory
+# Memória
 # ---------------------------------------------------------------------------
 
 class ConversationMemory:
@@ -187,13 +189,13 @@ class ConversationMemory:
     def __init__(self, store=None, clock=None, pseudonymizer=None,
                  retention_days=DEFAULT_RETENTION_DAYS):
         self.store = store if store is not None else InMemoryStore()
-        # Injectable clock: without it there is no way to test retention
-        # without waiting 180 days.
+        # Relógio injetável: sem isto não dá para testar retenção sem esperar
+        # 180 dias.
         self.clock = clock or _utc_now
         self.pseudo = pseudonymizer or Pseudonymizer()
         self.retention_days = retention_days
 
-    # -- state --------------------------------------------------------------
+    # -- estado -------------------------------------------------------------
 
     def _new_state(self, lead_id):
         now = _iso(self.clock())
@@ -202,11 +204,11 @@ class ConversationMemory:
             "lead_id": lead_id,
             "created_at": now,
             "updated_at": now,
-            # Two different dates on purpose. `ultima_interacao_em` includes the
-            # agent's messages and serves retention. `ultima_mensagem_lead_em`
-            # only advances when the LEAD writes, and it is what measures
-            # silence: without that separation, sending a follow-up would reset
-            # the very counter that decides whether to send one.
+            # Duas datas diferentes de propósito. `last_interaction_at` inclui
+            # as mensagens do agente e serve à retenção. `last_lead_message_at`
+            # só avança quando o LEAD escreve, e é a que mede silêncio: sem essa
+            # separação, mandar um follow-up zeraria o próprio contador que
+            # decide se o follow-up deve ser mandado.
             "last_interaction_at": now,
             "last_lead_message_at": now,
             "consent": None,
@@ -217,16 +219,21 @@ class ConversationMemory:
             "summarized_up_to": 0,
             "shown_properties": [],
             "alias_map": {},
-            # Consecutive without a lead reply: resets when they speak again.
-            # This is what drives cadence and the "pushing too hard" alert.
+            # Por campo, quantas mensagens do lead chegaram enquanto ele
+            # continuava desconhecido. É o proxy para "já perguntei isso e
+            # não obtive resposta": só a memória tem esse estado, porque o
+            # agente vê uma janela de 10 mensagens e nenhum contador.
+            "unanswered": {},
+            # Consecutivos sem resposta do lead: zera quando ele volta a falar.
+            # É esse que decide a cadência e o alerta de "insistindo demais".
             "followups_sent": 0,
-            # Lifetime total, never resets. For reporting, not decisions.
+            # Total histórico, nunca zera. Serve a relatório, não a decisão.
             "followups_total": 0,
             "last_followup_at": None,
         }
 
     def state(self, lead_id):
-        """The lead's state, creating an empty one if it does not exist yet."""
+        """Estado do lead, criando um vazio se ainda não existir."""
         validate_lead_id(lead_id)
         return self.store.read(lead_id) or self._new_state(lead_id)
 
@@ -242,12 +249,12 @@ class ConversationMemory:
     def leads(self):
         return self.store.list_ids()
 
-    # -- messages -----------------------------------------------------------
+    # -- mensagens ----------------------------------------------------------
 
     def record_message(self, lead_id, role, content):
-        """Store a message. `role` is 'user' or 'assistant'."""
+        """Grava uma mensagem. `role` é 'user' ou 'assistant'."""
         if role not in ("user", "assistant"):
-            raise ValueError("invalid role: %r" % (role,))
+            raise ValueError("role inválido: %r" % (role,))
 
         state = self.state(lead_id)
         now = _iso(self.clock())
@@ -257,18 +264,32 @@ class ConversationMemory:
 
         if role == "user":
             state["last_lead_message_at"] = now
-            # The lead is talking again: the follow-up ladder restarts. They are
-            # conversing, not running away, and the next nudge should use the
-            # short interval again. `followups_total` keeps the history.
+            # O lead voltou a falar: a régua de follow-up recomeça. Ele está
+            # conversando, não fugindo, e a próxima retomada deve usar o
+            # intervalo curto de novo. `followups_total` guarda o histórico.
             state["followups_sent"] = 0
+
+            # Uma mensagem chegou e o campo que o agente estava perseguindo
+            # continua desconhecido. Conta só ESSE campo, não todos os que
+            # faltam: um SDR pergunta uma coisa por vez, e marcar tudo de uma
+            # vez fazia o contexto dizer "desista de todos os assuntos", que é
+            # instrução pior do que o problema original.
+            #
+            # Contar aqui, e não no `update_profile`, garante exatamente um
+            # incremento por mensagem do lead: o `update_profile` pode ser
+            # chamado mais de uma vez no mesmo turno.
+            pursued = next_to_collect(state["profile"])
+            if pursued:
+                unanswered = state.setdefault("unanswered", {})
+                unanswered[pursued] = unanswered.get(pursued, 0) + 1
 
         return self._save(lead_id, state)
 
     def history(self, lead_id, window=DEFAULT_WINDOW, mask=False):
-        """History in the shape `chamar_agente()` expects.
+        """Histórico no formato que o `chamar_agente()` espera.
 
-        Person 1 consumes `[{"role": ..., "content": ...}]`, so that is the
-        shape returned, not the internal one.
+        A Pessoa 1 consome `[{"role": ..., "content": ...}]`, então é esse o
+        formato devolvido, e não o interno.
         """
         state = self.state(lead_id)
         messages = state["messages"]
@@ -282,8 +303,9 @@ class ConversationMemory:
         output, mapping = self._mask_messages(
             messages, state.get("alias_map", {}), self._known_names(state)
         )
-        # New aliases must be persisted, otherwise the same e-mail gets a
-        # different alias each turn and the LLM thinks they are different people.
+        # Apelidos novos precisam ser persistidos, senão o mesmo e-mail ganha
+        # apelidos diferentes a cada turno e o LLM acha que são pessoas
+        # diferentes.
         state["alias_map"] = mapping
         self._save(lead_id, state)
 
@@ -300,29 +322,30 @@ class ConversationMemory:
     def message_count(self, lead_id):
         return len(self.state(lead_id)["messages"])
 
-    # -- profile ------------------------------------------------------------
+    # -- perfil -------------------------------------------------------------
 
     def _known_names(self, state):
         name = state.get("profile", {}).get("name")
         return [name] if is_known(name) else []
 
     def update_profile(self, lead_id, collected_data):
-        """Merge Person 1's `dados_coletados` into the accumulated profile.
+        """Funde o `dados_coletados` da Pessoa 1 no perfil acumulado.
 
-        Returns the list of changes, each with `tipo` 'novo' or 'correcao'. The
-        broker wants to see corrections: "the lead raised the budget from 500k
-        to 800k" is a buying signal, not noise.
+        Devolve a lista de alterações, cada uma com `kind` 'new' ou
+        'correction'. O corretor quer ver as correções: "o lead subiu o
+        orçamento de 500k para 800k" é sinal de compra, não ruído.
 
-        Unknown values NEVER overwrite known ones. That is the reason memory
-        exists: Person 1's extraction is stateless and can regress between calls.
+        Valores desconhecidos NUNCA sobrescrevem valores conhecidos. É a razão
+        de a memória existir: a extração da Pessoa 1 é sem estado e pode
+        regredir entre chamadas.
         """
         state = self.state(lead_id)
         now = _iso(self.clock())
         changes = []
 
-        # Person 1's Portuguese keys are translated here, once, at the edge.
-        # `from_agent` also passes our own keys through, so an already
-        # translated profile can be merged again safely.
+        # As chaves em português da Pessoa 1 são traduzidas aqui, uma vez, na
+        # borda. O `from_agent` também deixa passar as nossas próprias chaves,
+        # então um perfil já traduzido pode ser fundido de novo com segurança.
         for field, value in lead_profile.from_agent(collected_data).items():
             previous = state["profile"].get(field)
 
@@ -334,6 +357,9 @@ class ConversationMemory:
                 continue
 
             state["profile"][field] = value
+            # Respondeu: o contador zera. Se o lead voltar a esconder o campo
+            # depois de uma correção, a contagem recomeça do zero.
+            state.setdefault("unanswered", {}).pop(field, None)
             meta = state["profile_meta"].setdefault(field, {"revisions": 0})
             meta["updated_at"] = now
             meta["revisions"] += 1
@@ -349,24 +375,38 @@ class ConversationMemory:
         return dict(self.state(lead_id)["profile"])
 
     def alias_map(self, lead_id):
-        """Session alias map, for callers that need to restore text.
+        """Mapa de apelidos da sessão, para quem precisa restaurar texto.
 
-        Used by the summarizer and the follow-up generator, which send masked
-        conversation to the LLM and must undo the aliases on the way back.
+        Usado pelo summarizer e pelo gerador de follow-up, que mandam a conversa
+        mascarada ao LLM e precisam desfazer os apelidos na volta.
         """
         return dict(self.state(lead_id).get("alias_map", {}))
 
     def known_fields(self, lead_id):
         return sorted(f for f, v in self.profile(lead_id).items() if is_known(v))
 
-    # -- properties already shown -------------------------------------------
+    def dodged_fields(self, lead_id, threshold=DODGE_THRESHOLD):
+        """Campos que o lead vem deixando sem resposta, e há quantas mensagens.
+
+        Serve a dois consumidores: o contexto do prompt, para o agente parar de
+        insistir, e o alerta do dashboard, para o corretor saber que o lead está
+        se esquivando de um ponto específico.
+
+        Só a memória consegue calcular isto. O agente recebe uma janela de dez
+        mensagens e nenhum contador, então ele repetiria a mesma pergunta
+        indefinidamente sem perceber.
+        """
+        unanswered = self.state(lead_id).get("unanswered", {})
+        return {f: n for f, n in unanswered.items() if n >= threshold}
+
+    # -- imóveis já apresentados --------------------------------------------
 
     def record_shown_properties(self, lead_id, ids):
-        """Store what has already been presented.
+        """Guarda o que já foi mostrado.
 
-        Serves two consumers: follow-up, which needs to say "that apartment in
-        Botafogo I sent you", and search, which should not repeat the same three
-        options every turn.
+        Serve a dois consumidores: o follow-up, que precisa dizer "aquele
+        apartamento em Botafogo que te mandei", e a busca, que não deveria
+        repetir as mesmas três opções a cada turno.
         """
         state = self.state(lead_id)
         already_seen = state["shown_properties"]
@@ -380,21 +420,21 @@ class ConversationMemory:
     def shown_properties(self, lead_id):
         return list(self.state(lead_id)["shown_properties"])
 
-    # -- incremental summary ------------------------------------------------
+    # -- resumo incremental -------------------------------------------------
 
     def needs_summary(self, lead_id):
-        """True when too much old conversation sits outside the summary."""
+        """Verdadeiro quando há conversa antiga demais fora do resumo."""
         state = self.state(lead_id)
         unsummarized = len(state["messages"]) - state["summarized_up_to"]
         return unsummarized > SUMMARY_THRESHOLD
 
     def messages_to_summarize(self, lead_id):
-        """Messages not yet covered by the summary, minus the live window."""
+        """As mensagens ainda não cobertas pelo resumo, menos a janela viva."""
         state = self.state(lead_id)
         return state["messages"][state["summarized_up_to"]:-DEFAULT_WINDOW]
 
     def set_summary(self, lead_id, text, up_to_index):
-        """Store the summary produced by the summarizer."""
+        """Guarda o resumo produzido pelo summarizer."""
         state = self.state(lead_id)
         state["summary"] = text
         state["summarized_up_to"] = max(0, min(up_to_index, len(state["messages"])))
@@ -406,11 +446,11 @@ class ConversationMemory:
     # -- follow-up ----------------------------------------------------------
 
     def hours_of_silence(self, lead_id):
-        """Hours since the LEAD's last message.
+        """Horas desde a última mensagem DO LEAD.
 
-        Agent messages do not count: what matters is how long the lead has been
-        quiet. `ultima_mensagem_lead_em` uses `.get` with a fallback so states
-        written before this field existed remain readable.
+        Mensagens do agente não contam: o que interessa é há quanto tempo o lead
+        não responde. `last_lead_message_at` usa `.get` com fallback para que
+        estados gravados antes deste campo existir continuem legíveis.
         """
         state = self.state(lead_id)
         last = datetime.fromisoformat(
@@ -425,13 +465,13 @@ class ConversationMemory:
         state["last_followup_at"] = _iso(self.clock())
         return self._save(lead_id, state)
 
-    # -- context for the prompt ---------------------------------------------
+    # -- contexto para o prompt ---------------------------------------------
 
     def build_context(self, lead_id, mask=True):
-        """Long-memory text block to inject into the prompt.
+        """Bloco de texto com a memória longa, para injetar no prompt.
 
-        Complements the short history, it does not replace it. This is what
-        Person 1's agent would receive as `contexto_extra`.
+        Complementa o histórico curto, não o substitui. É o que o agente da
+        Pessoa 1 receberia como `contexto_extra`.
         """
         state = self.state(lead_id)
         text = self._context_text(state)
@@ -448,13 +488,12 @@ class ConversationMemory:
         return text
 
     def _context_text(self, state):
-        """Build the block in the clear. Callers apply pseudonymisation.
+        """Monta o bloco em claro. A pseudonimização é aplicada por quem chama.
 
-        Split out from `build_context` so `start_turn` can mask history,
-        message and context against ONE accumulated map.
+        Separado de `build_context` para que `start_turn` consiga mascarar
+        histórico, mensagem e contexto contra UM único mapa acumulado.
 
-        The text is Portuguese: it is read by the LLM next to a Portuguese
-        prompt.
+        O texto é em português: o LLM o lê ao lado de um prompt em português.
         """
         profile = state["profile"]
         lines = []
@@ -469,14 +508,33 @@ class ConversationMemory:
                         lead_profile.label(field, known[field]),
                     ))
 
-        # Pointing out what is missing only helps once something is known. On a
-        # brand new lead it would be the whole list, redundant with Person 1's
-        # system prompt and pure token cost.
+        dodged = {f: n for f, n in state.get("unanswered", {}).items()
+                  if n >= DODGE_THRESHOLD}
+
+        # Só faz sentido apontar o que falta quando já se sabe alguma coisa.
+        # Num lead novo isso seria a lista inteira, redundante com o system
+        # prompt da Pessoa 1 e puro custo de token.
+        #
+        # Campos esquivados saem desta lista de propósito: mandar "descubra o
+        # orçamento" e "não insista no orçamento" no mesmo prompt é instrução
+        # contraditória, e o modelo escolhe uma das duas ao acaso.
         if known:
             missing = [lead_profile.FIELD_LABELS[f].lower() for f in PROFILE_FIELDS
-                       if f not in known and f not in ("email", "phone")]
+                       if f not in known and f not in ("email", "phone")
+                       and f not in dodged]
             if missing:
                 lines.append("AINDA FALTA DESCOBRIR: " + ", ".join(missing) + ".")
+
+        if dodged:
+            detalhe = ", ".join(
+                "%s (%d mensagens)" % (lead_profile.FIELD_LABELS[f].lower(), n)
+                for f, n in sorted(dodged.items())
+            )
+            lines.append(
+                "O LEAD NÃO RESPONDEU SOBRE: " + detalhe + ". "
+                "Pare de perguntar isso. Siga para outro assunto ou ofereça "
+                "agendar com o que você já tem."
+            )
 
         if state["summary"]:
             lines.append("RESUMO DA CONVERSA ATÉ AQUI:")
@@ -497,24 +555,24 @@ class ConversationMemory:
 
         return "\n".join(lines)
 
-    # -- one turn -----------------------------------------------------------
+    # -- ciclo de um turno --------------------------------------------------
 
     def start_turn(self, lead_id, message, window=DEFAULT_WINDOW):
-        """Record the lead's message and return everything pseudonymised.
+        """Registra a mensagem do lead e devolve tudo pronto e pseudonimizado.
 
-        History, message and context are masked against the SAME accumulated
-        map, and the complete map comes back in the turn. Masking each piece
-        with its own map would make the LLM reply come back with aliases that
-        `finish_turn` could not undo, and the lead would see "[EMAIL_2]".
+        Histórico, mensagem e contexto são mascarados contra o MESMO mapa
+        acumulado, e o mapa completo volta no turno. Mascarar cada peça com um
+        mapa próprio faria a resposta do LLM voltar com apelidos que o
+        `finish_turn` não saberia desfazer, e o lead veria "[EMAIL_2]".
         """
         self.record_message(lead_id, "user", message)
 
         state = self.state(lead_id)
         mapping = state.get("alias_map", {})
 
-        # Known names PLUS the ones declared in this message. Without the second
-        # half, the lead's name would go to the LLM in the clear in exactly the
-        # message where they introduce themselves.
+        # Nomes já conhecidos MAIS os declarados nesta mensagem. Sem a segunda
+        # metade, o nome do lead iria em claro para o LLM exatamente na mensagem
+        # em que ele se apresenta.
         names = self._known_names(state) + detect_names(message)
 
         previous = state["messages"][:-1]
@@ -540,14 +598,14 @@ class ConversationMemory:
         )
 
     def finish_turn(self, lead_id, turn, reply, collected_data=None):
-        """Restore the reply, store it and merge the profile. Returns the text.
+        """Restaura a resposta, grava e funde o perfil. Devolve o texto ao lead.
 
-        A non-obvious integration detail: because the LLM received masked text,
-        Person 1's extraction runs over placeholders and returns `"[EMAIL_1]"`
-        in the e-mail field, or `"undefined"` because its regex does not
-        recognise the placeholder. So two things happen here: aliases are undone
-        in the extracted values, and e-mail, phone and name are extracted
-        directly from the ORIGINAL text, which only we hold.
+        Detalhe de integração que não é óbvio: como o LLM recebeu texto
+        mascarado, a extração da Pessoa 1 roda sobre placeholders e devolve
+        `"[EMAIL_1]"` no campo e-mail, ou `"undefined"` porque o regex dela não
+        reconhece o placeholder. Então aqui fazemos duas coisas: desfazemos os
+        apelidos nos valores extraídos, e extraímos e-mail, telefone e nome
+        diretamente do texto ORIGINAL, que só nós temos.
         """
         restored_reply = self.pseudo.restore(reply, turn.mapping)
         self.record_message(lead_id, "assistant", restored_reply)
@@ -557,7 +615,7 @@ class ConversationMemory:
             if isinstance(value, str):
                 data[field] = self.pseudo.restore(value, turn.mapping)
 
-        for field, value in _extract_pii(turn.original_message).items():
+        for field, value in extract_pii(turn.original_message).items():
             if not is_known(data.get(field)):
                 data[field] = value
 
@@ -568,7 +626,7 @@ class ConversationMemory:
     # -- LGPD ---------------------------------------------------------------
 
     def record_consent(self, lead_id, granted, purpose):
-        """Explicit, informed consent (LGPD art. 8)."""
+        """Consentimento explícito e informado (LGPD art. 8º)."""
         state = self.state(lead_id)
         state["consent"] = {
             "granted": bool(granted),
@@ -582,12 +640,12 @@ class ConversationMemory:
         return bool(consent and consent.get("granted"))
 
     def forget(self, lead_id):
-        """Right to erasure. Wipes everything, alias map included."""
+        """Direito de exclusão. Apaga tudo do lead, mapa de apelidos incluído."""
         validate_lead_id(lead_id)
         return self.store.delete(lead_id)
 
     def export(self, lead_id):
-        """Right of access and portability: everything we hold, readable."""
+        """Direito de acesso e portabilidade: tudo que guardamos, legível."""
         if not self.exists(lead_id):
             return None
 
@@ -605,7 +663,7 @@ class ConversationMemory:
         }
 
     def expired(self, days=None):
-        """Leads whose last interaction is past the retention window."""
+        """Leads cuja última interação passou do prazo de retenção."""
         days = self.retention_days if days is None else days
         cutoff = self.clock() - timedelta(days=days)
 
@@ -620,10 +678,10 @@ class ConversationMemory:
         return stale
 
     def purge_expired(self, days=None):
-        """Storage Limitation: discard what is past the retention window.
+        """Limitação de Armazenamento: descarta o que passou do prazo.
 
-        Built to run as a scheduled job by Person 3, alongside the follow-up
-        scheduler.
+        Feito para rodar como job agendado pela Pessoa 3, ao lado do scheduler
+        de follow-up.
         """
         removed = []
         for lead_id in self.expired(days):
@@ -633,7 +691,7 @@ class ConversationMemory:
         return removed
 
     def log_summary(self, lead_id):
-        """One log line with no personal data."""
+        """Uma linha de log sem nenhum dado pessoal."""
         state = self.state(lead_id)
         return "lead=%s messages=%d fields=%d followups=%d" % (
             lead_id,
@@ -643,12 +701,12 @@ class ConversationMemory:
         )
 
 
-def _extract_pii(text):
-    """E-mail, phone and name from the text in the clear.
+def extract_pii(text):
+    """E-mail, telefone e nome a partir do texto em claro.
 
-    Needed because Person 1's extraction runs over already-masked text and is
-    blind to exactly these fields: its regex does not recognise "[EMAIL_1]" as
-    an e-mail.
+    Necessário porque a extração da Pessoa 1 roda sobre o texto já mascarado e
+    fica cega justamente para estes campos: o regex dela não reconhece
+    "[EMAIL_1]" como e-mail.
     """
     found = {}
 
@@ -661,8 +719,8 @@ def _extract_pii(text):
 
     names = detect_names(text)
     if names:
-        # First name only, capitalised, to match the convention Person 1 uses in
-        # `extrair_nome`.
+        # Só o primeiro nome, capitalizado, para casar com a convenção que a
+        # Pessoa 1 usa em `extrair_nome`.
         found["name"] = names[0].split()[0].capitalize()
 
     return found
@@ -670,6 +728,7 @@ def _extract_pii(text):
 
 __all__ = [
     "ConversationMemory",
+    "extract_pii",
     "InMemoryStore",
     "JsonFileStore",
     "PreparedTurn",

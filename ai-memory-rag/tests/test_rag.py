@@ -1,18 +1,17 @@
 """
-Tests for the RAG module (Part 2).
+Testes do módulo de RAG (Parte 2).
 
-Run offline, with no API key and no external dependency:
+Rodam offline, sem chave de API e sem nenhuma dependência externa:
 
     python -m unittest discover -s ai-memory-rag/tests -v
 
-The embedder is always HashingEmbedder so the tests stay deterministic. Testing
-against the real Gemini API would make the suite slow, network-dependent and
-quota-dependent.
-
-Assertions on user-facing strings stay in Portuguese, because that text is the
-product output and does not get translated.
+O embedder é sempre o HashingEmbedder, para que os testes sejam
+determinísticos. Testar contra a API real do Gemini deixaria a suíte lenta,
+dependente de rede e dependente de cota.
 """
 
+import contextlib
+import io
 import json
 import os
 import sys
@@ -23,11 +22,12 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, MODULE_ROOT)
 
 from rag import indexer, retriever, schema                     # noqa: E402
+from rag import embeddings                                      # noqa: E402
 from rag.embeddings import HashingEmbedder, cosine, tokenize    # noqa: E402
 
 
 def valid_property(**overrides):
-    """Minimal valid document, for validation and filter tests."""
+    """Documento mínimo válido, para os testes de validação e de filtro."""
     base = {
         "id": "IMV-9999",
         "title": "Apartamento de 3 quartos em Copacabana",
@@ -73,8 +73,8 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(schema.resolve_region("LEBLON"), ("Leblon", None))
 
     def test_resolve_region_handles_person_1_undefined(self):
-        # "undefined" is literally what Person 1's agent returns when it could
-        # not extract the field. It must not become a filter.
+        # "undefined" é literalmente o que o agente da Pessoa 1 devolve quando
+        # não conseguiu extrair o campo. Não pode virar filtro.
         self.assertEqual(schema.resolve_region("undefined"), (None, None))
         self.assertEqual(schema.resolve_region(None), (None, None))
         self.assertEqual(schema.resolve_region(""), (None, None))
@@ -134,9 +134,9 @@ class TestEmbeddings(unittest.TestCase):
         self.assertAlmostEqual(norm, 1.0, places=6)
 
     def test_deterministic_across_instances(self):
-        # Regression: an earlier version would have used the built-in hash(),
-        # which is randomised per process and would make the saved index
-        # disagree with later queries.
+        # Regressão: uma versão anterior usaria o hash() embutido, que é
+        # randomizado por processo e faria o índice salvo divergir das consultas
+        # de execuções seguintes.
         a = HashingEmbedder(dim=256).embed_query("cobertura no Leblon")
         b = HashingEmbedder(dim=256).embed_query("cobertura no Leblon")
         self.assertEqual(a, b)
@@ -164,14 +164,118 @@ class TestEmbeddings(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+class TestEmbedderSelection(unittest.TestCase):
+    """`get_embedder` no modo automatico nunca pode derrubar o processo.
+
+    A promessa do modulo e que sem chave, com chave errada ou sem internet o
+    RAG continua funcionando em modo offline. Construir o `GeminiEmbedder` nao
+    e suficiente para validar isso: o SDK so fala com a API na primeira
+    requisicao, entao uma chave invalida passava pela construcao e explodia
+    depois, dentro do `build_index`.
+    """
+
+    def setUp(self):
+        self.original = embeddings.GeminiEmbedder
+        self.addCleanup(setattr, embeddings, "GeminiEmbedder", self.original)
+
+    def _get(self, prefer=None):
+        # O fallback avisa por print; o aviso e desejado, so nao no meio da
+        # saida dos testes.
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            embedder = embeddings.get_embedder(prefer=prefer)
+
+        return embedder, buffer.getvalue()
+
+    def test_falls_back_when_construction_fails(self):
+        # Sem GEMINI_API_KEY: o construtor levanta na hora.
+        class SemChave(object):
+            def __init__(self, **kwargs):
+                raise RuntimeError("GEMINI_API_KEY nao encontrada")
+
+        embeddings.GeminiEmbedder = SemChave
+        embedder, aviso = self._get()
+
+        self.assertIsInstance(embedder, HashingEmbedder)
+        self.assertIn("indisponivel", _sem_acento(aviso))
+
+    def test_falls_back_when_the_first_call_fails(self):
+        # Chave presente mas invalida: o construtor passa e a API recusa.
+        # Este e o caso que quebrava o run_chat.py com um traceback cru.
+        class ChaveInvalida(object):
+            def __init__(self, **kwargs):
+                pass
+
+            def embed_query(self, text):
+                raise RuntimeError("400 INVALID_ARGUMENT: API key not valid")
+
+            def embed_documents(self, texts):
+                raise AssertionError("nao deveria chegar aqui")
+
+        embeddings.GeminiEmbedder = ChaveInvalida
+        embedder, aviso = self._get()
+
+        self.assertIsInstance(embedder, HashingEmbedder)
+        self.assertIn("API key not valid", aviso)
+
+    def test_uses_gemini_when_it_actually_answers(self):
+        class Funcionando(object):
+            name = "gemini-fake"
+
+            def __init__(self, **kwargs):
+                self.sondado = False
+
+            def embed_query(self, text):
+                self.sondado = True
+                return [0.0, 1.0]
+
+        embeddings.GeminiEmbedder = Funcionando
+        embedder, aviso = self._get()
+
+        self.assertIsInstance(embedder, Funcionando)
+        self.assertTrue(embedder.sondado, "a sonda precisa ter sido chamada")
+        self.assertEqual(aviso, "")
+
+    def test_hashing_preference_never_touches_the_network(self):
+        class Explode(object):
+            def __init__(self, **kwargs):
+                raise AssertionError("prefer=hashing nao pode instanciar o Gemini")
+
+        embeddings.GeminiEmbedder = Explode
+        embedder, _ = self._get(prefer="hashing")
+
+        self.assertIsInstance(embedder, HashingEmbedder)
+
+    def test_explicit_gemini_preference_still_fails_loudly(self):
+        # Quem pede Gemini explicitamente quer saber que nao deu, e nao receber
+        # um indice lexical silenciosamente no lugar.
+        class SemChave(object):
+            def __init__(self, **kwargs):
+                raise RuntimeError("GEMINI_API_KEY nao encontrada")
+
+        embeddings.GeminiEmbedder = SemChave
+        with self.assertRaises(RuntimeError):
+            embeddings.get_embedder(prefer="gemini")
+
+
+def _sem_acento(text):
+    import unicodedata
+    decomposto = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in decomposto if not unicodedata.combining(c))
+
+
+
+# ---------------------------------------------------------------------------
+
+
 class TestParsers(unittest.TestCase):
 
     def test_range_with_two_values(self):
         self.assertEqual(retriever.parse_price_range("500k-800k"), (500000.0, 800000.0))
 
     def test_range_is_order_independent(self):
-        # Person 1 builds the range through a set(), whose iteration order
-        # varies between Python runs. Both spellings must agree.
+        # A Pessoa 1 monta a faixa via set(), cuja ordem de iteração varia
+        # entre execuções do Python. As duas grafias têm de concordar.
         self.assertEqual(
             retriever.parse_price_range("800k-500k"),
             retriever.parse_price_range("500k-800k"),
@@ -214,7 +318,7 @@ class TestFiltersFromProfile(unittest.TestCase):
         self.assertEqual(filters.deal_type, "RENTAL")
 
     def test_investment_becomes_sale(self):
-        # An investor buys. INVESTIMENTO is a profile, not a deal type.
+        # Investidor compra. INVESTIMENTO é perfil, não tipo de negócio.
         filters = retriever.filters_from_profile({"intencao": "INVESTIMENTO"})
         self.assertEqual(filters.deal_type, "SALE")
 
@@ -226,7 +330,7 @@ class TestFiltersFromProfile(unittest.TestCase):
         self.assertEqual(filters.min_yield, 6.0)
 
     def test_full_profile_from_person_1(self):
-        # Exact `dados_coletados` shape documented in the repo README.
+        # Formato exato do `dados_coletados` documentado no README do repo.
         data = {
             "nome": "João",
             "intencao": "COMPRA",
@@ -291,7 +395,7 @@ class TestGeography(unittest.TestCase):
 
 
 class TestGeneratedBase(unittest.TestCase):
-    """The versioned synthetic base must stay intact."""
+    """A base sintética versionada precisa estar íntegra."""
 
     @classmethod
     def setUpClass(cls):
@@ -301,8 +405,8 @@ class TestGeneratedBase(unittest.TestCase):
         self.assertGreaterEqual(len(self.properties), 100)
 
     def test_every_document_is_valid(self):
-        # load_properties() already raises on problems; this test makes the
-        # guarantee explicit and readable in the suite report.
+        # load_properties() já levanta se houver problema; este teste torna a
+        # garantia explícita e legível no relatório da suíte.
         for prop in self.properties:
             self.assertEqual(schema.validate_property(prop), [], prop["id"])
 
@@ -357,9 +461,9 @@ class TestIndex(unittest.TestCase):
 
     def test_search_text_repeats_weighted_fields(self):
         text = indexer.build_search_text(valid_property())
-        # title has weight 3
+        # title tem peso 3
         self.assertEqual(text.count("Apartamento de 3 quartos em Copacabana"), 3)
-        # the zone is included even when the listing never mentions it
+        # a zona entra mesmo quando o anúncio nunca a menciona
         self.assertIn("Zona Sul", text)
 
     def test_search_text_marks_the_deal_type(self):
@@ -387,7 +491,7 @@ class TestIndex(unittest.TestCase):
 
         self.assertEqual(len(reloaded), len(self.index))
         self.assertEqual(reloaded.embedder_name, self.index.embedder_name)
-        # A query after reloading must agree with the original.
+        # Consulta feita depois do recarregamento tem de bater com a original.
         query = self.embedder.embed_query("cobertura no Leblon")
         before = [d["id"] for d, _ in self.index.similarities(query)[:5]]
         after = [d["id"] for d, _ in reloaded.similarities(query)[:5]]
@@ -415,7 +519,7 @@ class TestSearch(unittest.TestCase):
             embedder=self.embedder, top_k=top_k, allow_relaxation=relax,
         )
 
-    # -- hard filters -------------------------------------------------------
+    # -- filtros duros ------------------------------------------------------
 
     def test_price_filter_is_respected(self):
         filters = retriever.Filters(deal_type="SALE", max_price=700000)
@@ -434,9 +538,8 @@ class TestSearch(unittest.TestCase):
             self.assertGreaterEqual(recommendation.property["bedrooms"], 3)
 
     def test_unavailable_properties_never_surface(self):
-        # With no filters at all, every property is a candidate except the
-        # unavailable ones. This is the test that keeps the broker from
-        # offering something already sold.
+        # Sem nenhum filtro, todos são candidatos exceto os indisponíveis.
+        # Este é o teste que impede o corretor de oferecer algo já vendido.
         ids = retriever.apply_filters(self.index, retriever.Filters())
 
         self.assertGreater(len(ids), 0)
@@ -465,7 +568,7 @@ class TestSearch(unittest.TestCase):
         self.assertGreater(len(result), 0)
         for recommendation in result:
             self.assertLessEqual(recommendation.distance_km, 4.0)
-            # Nothing in Barra belongs within 4 km of Leblon.
+            # Nada da Barra cabe num raio de 4 km do Leblon.
             self.assertNotEqual(recommendation.property["neighborhood"], "Barra")
 
     def test_feature_filter(self):
@@ -502,8 +605,8 @@ class TestSearch(unittest.TestCase):
             self.assertIn("no bairro pedido", recommendation.reason)
 
     def test_semantics_influence_the_order(self):
-        # Same filters, different queries: the order must change, otherwise the
-        # semantic ranking is doing nothing.
+        # Mesmos filtros, consultas diferentes: a ordem tem de mudar, senão o
+        # ranking semântico não está fazendo nada.
         filters = retriever.Filters(deal_type="SALE", zone="Zona Sul")
         beach = [r.id for r in self.search(
             filters, "quero vista para o mar, perto da praia", top_k=5)]
@@ -511,7 +614,7 @@ class TestSearch(unittest.TestCase):
             filters, "casa grande com quintal para cachorro", top_k=5)]
         self.assertNotEqual(beach, house)
 
-    # -- relaxation ---------------------------------------------------------
+    # -- relaxamento --------------------------------------------------------
 
     def test_satisfiable_profile_does_not_relax(self):
         filters = retriever.Filters(deal_type="SALE", zone="Zona Sul", min_bedrooms=2)
@@ -521,7 +624,7 @@ class TestSearch(unittest.TestCase):
         self.assertEqual(result.mismatches, [])
 
     def test_impossible_profile_relaxes_and_still_returns_options(self):
-        # Four bedrooms in Leblon for up to 300k does not exist anywhere.
+        # 4 quartos no Leblon por até 300 mil não existe em lugar nenhum.
         filters = retriever.Filters(
             deal_type="SALE", neighborhood="Leblon", min_bedrooms=4, max_price=300000
         )
@@ -546,7 +649,7 @@ class TestSearch(unittest.TestCase):
         self.assertEqual(len(result), 0)
         self.assertEqual(result.candidate_count, 0)
 
-    # -- output -------------------------------------------------------------
+    # -- saída --------------------------------------------------------------
 
     def test_reason_describes_the_property(self):
         filters = retriever.Filters(
@@ -560,7 +663,7 @@ class TestSearch(unittest.TestCase):
 
     def test_to_dict_serializes(self):
         result = self.search(retriever.Filters(), "apartamento", top_k=2)
-        # It has to cross Person 3's API as JSON.
+        # Precisa atravessar a API da Pessoa 3 como JSON.
         self.assertIn("reason", json.dumps(result.to_dict(), ensure_ascii=False))
 
     def test_prompt_lists_ids_and_forbids_invention(self):
@@ -590,10 +693,10 @@ class TestSearch(unittest.TestCase):
 
 
 class TestMismatches(unittest.TestCase):
-    """Precision of what gets reported to the lead when the result falls short.
+    """Precisão do que é reportado ao lead quando o resultado foge do pedido.
 
-    Uses a tiny hand-built index so the scenario is exact rather than dependent
-    on how the synthetic base happened to fall.
+    Usa um índice minúsculo montado à mão, para que o cenário seja exato em vez
+    de depender de como a base sintética caiu.
     """
 
     @classmethod
@@ -636,10 +739,10 @@ class TestMismatches(unittest.TestCase):
         self.assertFalse(result.was_relaxed)
 
     def test_mismatch_does_not_mention_a_respected_constraint(self):
-        # Regression for the bug found in the demo: the ladder has to climb the
-        # "budget widened" step to fill top_k, but both returned properties
-        # (500k and 400k) fit the 600k budget. The prompt must NOT tell the lead
-        # their budget was exceeded.
+        # Regressão do bug encontrado na demo: a escada precisa subir o degrau
+        # "orçamento ampliado" para completar o top_k, mas os dois imóveis
+        # devolvidos (500k e 400k) cabem no orçamento de 600k. O prompt NÃO pode
+        # dizer ao lead que o orçamento foi estourado.
         filters = retriever.Filters(
             neighborhood="Copacabana", min_bedrooms=3, max_price=600000
         )
@@ -649,9 +752,9 @@ class TestMismatches(unittest.TestCase):
         for recommendation in result:
             self.assertLessEqual(recommendation.property["price"], 600000)
 
-        # The step was climbed...
+        # O degrau foi subido...
         self.assertTrue(any("orçamento" in r for r in result.relaxations))
-        # ...but it is not reported as a mismatch, because nothing overflowed.
+        # ...mas não é reportado como desvio, porque nada estourou.
         self.assertFalse(
             any("orçamento" in m for m in result.mismatches),
             "mismatches wrongly mention the budget: %r" % result.mismatches,
@@ -677,8 +780,9 @@ class TestMismatches(unittest.TestCase):
         self.assertNotIn("orçamento ampliado", prompt)
 
     def test_budget_mismatch_is_reported_when_real(self):
-        # Here the overflow is genuine: the only 3-bedroom options in
-        # Copacabana above 450k cost 500k and 900k, so the mismatch must show.
+        # Aqui o estouro é verdadeiro: as únicas opções de 3 quartos em
+        # Copacabana acima de 450k custam 500k e 900k, então o desvio tem de
+        # aparecer.
         filters = retriever.Filters(
             neighborhood="Copacabana", min_bedrooms=3, max_price=450000
         )
@@ -692,7 +796,7 @@ class TestMismatches(unittest.TestCase):
 
 
 class TestIntegrationWithPerson1(unittest.TestCase):
-    """Scenarios from the brief, entering through Person 1's real format."""
+    """Cenários do PDF, entrando pelo formato real da Pessoa 1."""
 
     @classmethod
     def setUpClass(cls):
@@ -748,9 +852,8 @@ class TestIntegrationWithPerson1(unittest.TestCase):
             self.assertEqual(recommendation.property["deal_type"], "RENTAL")
 
     def test_first_message_with_no_data_still_works(self):
-        # On the first interaction Person 1 returns almost everything as
-        # "undefined". The RAG must neither blow up nor return empty: it shows
-        # what it has.
+        # Na primeira interação a Pessoa 1 devolve quase tudo como "undefined".
+        # O RAG não pode explodir nem devolver vazio: ele mostra o que tem.
         data = {
             "nome": "undefined", "intencao": "undefined", "preco_faixa": "undefined",
             "regiao": "undefined", "bedrooms": "undefined", "urgencia": "undefined",

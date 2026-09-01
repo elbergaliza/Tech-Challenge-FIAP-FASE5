@@ -1,61 +1,58 @@
 """
-Pseudonymisation of personal data before it reaches the LLM.
+Pseudonimização de dados pessoais antes de chegarem ao LLM.
 
-The concrete problem this solves: Gemini is a third party. Every piece of text
-the agent sends leaves our control. Today `ai-core/src/agent.py` concatenates
-the whole conversation and ships it, lead e-mail and phone number included.
-Under the LGPD that is processing personal data with transfer to a third party,
-and the Necessity and Minimisation principles say only the minimum required for
-the purpose should leave.
+O problema concreto que isto resolve: o Gemini é um terceiro. Todo texto que o
+agente manda para ele sai do nosso controle. Hoje o `ai-core/src/agent.py`
+concatena a conversa inteira e envia, e-mail e telefone do lead junto. Para a
+LGPD isso é tratamento de dado pessoal com transferência a terceiro, e os
+princípios de Necessidade e Minimização dizem que só deve sair o mínimo
+necessário para a finalidade.
 
-The technique is PSEUDONYMISATION, not anonymisation, and the difference
-matters. Lesson 04 of "Privacidade e Proteção de Dados" warns that AI can
-re-identify anonymised data by combining datasets; and practically, simply
-deleting the name would ruin the humanised conversation, which is a grading
-criterion. So:
+A técnica é PSEUDONIMIZAÇÃO, não anonimização, e a diferença importa. A Aula 04
+de "Privacidade e Proteção de Dados" alerta que a IA pode reidentificar dados
+anonimizados combinando conjuntos; e, do lado prático, simplesmente apagar o
+nome estragaria a conversa humanizada, que é critério de avaliação. Então:
 
     "Oi, meu nome é João, meu email é joao@x.com"
-        -> mask ->
-    "Oi, meu nome é [NOME_1], meu email é [EMAIL_1]"        (this goes to the LLM)
-        -> LLM replies ->
+        -> mascarar ->
+    "Oi, meu nome é [NOME_1], meu email é [EMAIL_1]"        (isto vai ao LLM)
+        -> LLM responde ->
     "Claro, [NOME_1]! Vou enviar as opções para [EMAIL_1]."
-        -> restore ->
-    "Claro, João! Vou enviar as opções para joao@x.com."    (this goes to the lead)
+        -> restaurar ->
+    "Claro, João! Vou enviar as opções para joao@x.com."    (isto vai ao lead)
 
-The substitution map never leaves our machine. The LLM works with opaque
-references and the lead is still addressed by name.
+O mapa de substituição nunca sai da nossa máquina. O LLM trabalha com
+referências opacas e o lead continua sendo chamado pelo nome.
 
-Usage:
+Uso:
 
     pseudo = Pseudonymizer()
-    safe, mapping = pseudo.mask(lead_text)
-    reply = call_llm(safe)
+    safe, mapping = pseudo.mask(texto_do_lead)
+    reply = chamar_llm(safe)
     final = pseudo.restore(reply, mapping)
 
-To keep the same alias across conversation turns, pass the previous map:
+Para manter o mesmo apelido entre turnos da conversa, passe o mapa anterior:
 
-    safe, mapping = pseudo.mask(new_message, mapping=session_mapping)
+    safe, mapping = pseudo.mask(nova_mensagem, mapping=mapa_da_sessao)
 
-NOTE ON LANGUAGE: identifiers and comments are in English; the alias tags
-([NOME_1], [EMAIL_1]) stay in Portuguese because they appear inside Portuguese
-prompts and the model reads them as part of that text.
+Os apelidos ([NOME_1], [EMAIL_1]) ficam em português porque aparecem dentro de
+prompts em português e o modelo os lê como parte daquele texto.
 """
 
 import re
 
 # ---------------------------------------------------------------------------
-# Detectors
+# Detectores
 # ---------------------------------------------------------------------------
-# Order matters: the most specific pattern matches first, otherwise an e-mail
-# becomes half a phone number. E-mail comes first because it contains digits;
-# CPF and CEP come before phone because their shapes are more constrained.
+# A ordem importa: o padrão mais específico casa primeiro, senão um e-mail vira
+# meio telefone. E-mail vem primeiro porque contém dígitos; CPF e CEP vêm antes
+# de telefone porque suas formas são mais restritas.
 #
-# What is deliberately NOT detected:
-#   * an unformatted CPF (11 bare digits) is ambiguous with a mobile number
-#     including area code. It is treated as a phone, the likelier reading in a
-#     real estate conversation.
-#   * CEP requires the hyphen. Without it, 8 bare digits would match property
-#     prices.
+# O que NÃO é detectado, de propósito:
+#   * CPF sem formatação (11 dígitos crus) é ambíguo com celular com DDD. Fica
+#     tratado como telefone, que é a leitura mais provável numa conversa de
+#     imobiliária.
+#   * CEP exige o hífen. Sem ele, 8 dígitos crus casariam com valores de imóvel.
 PATTERNS = (
     ("EMAIL", re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")),
     ("CPF", re.compile(r"\b\d{3}\.\d{3}\.\d{3}-\d{2}\b")),
@@ -67,26 +64,26 @@ PATTERNS = (
 
 _ALIAS = re.compile(r"\[([A-Z]+)_(\d+)\]")
 
-# Very short names are not masked: the risk of replacing "Ana" inside
-# "Ananindeua" is real, but the bigger risk is masking two-letter particles and
-# shredding the whole text.
+# Nomes muito curtos não são mascarados: o risco de trocar "Ana" dentro de
+# "Ananindeua" é real, mas o risco maior é mascarar partículas de duas letras e
+# picotar o texto inteiro.
 MIN_NAME_LENGTH = 3
 
-# A proper name is not detectable by regex in general, but in a service
-# conversation it almost always arrives DECLARED: "meu nome é X", "sou o X".
-# Requiring a capital initial in the capture discards most false positives
-# ("sou casado", "sou de niterói" in lowercase do not match).
+# Nome próprio não é detectável por regex em geral, mas em conversa de
+# atendimento ele quase sempre chega DECLARADO: "meu nome é X", "sou o X".
+# Exigir inicial maiúscula na captura descarta a maior parte dos falsos
+# positivos ("sou casado", "sou de niterói" em minúscula não casam).
 #
-# This exists for a specific reason: the lead's name only becomes known AFTER
-# they introduce themselves, and without detection on the way in it would go to
-# the LLM in the clear in exactly the message that reveals it, which is the one
-# that most needs protecting.
+# Isto existe por um motivo específico: o nome do lead só passa a ser conhecido
+# DEPOIS que ele se apresenta, e sem detecção na entrada ele iria em claro para
+# o LLM exatamente na mensagem que o revela, que é a que mais precisa de
+# proteção.
 #
-# The trigger ("meu nome é", "sou o") matches case-insensitively via the scoped
-# `(?i:...)` flag; the capture does NOT, because the capital initial is what
-# separates "Sou Marina" from "sou casado". Compiling the whole pattern with
-# IGNORECASE would lose that distinction; compiling with no ignore-case at all
-# would miss "Sou João" at the start of a sentence, the most common case.
+# O gatilho ("meu nome é", "sou o") casa sem diferenciar maiúsculas, com a flag
+# escopada `(?i:...)`; a captura NÃO, porque é a inicial maiúscula que separa
+# "Sou Marina" de "sou casado". Compilar o padrão inteiro com IGNORECASE
+# perderia essa distinção; compilar sem nenhum ignore-case perderia "Sou João"
+# no início de frase, que é o caso mais comum.
 _NAME_CAPTURE = r"([A-ZÀ-Ý][\wÀ-ÿ]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ]+)*)"
 
 _NAME_DECLARATIONS = (
@@ -98,12 +95,12 @@ _NAME_DECLARATIONS = (
 
 
 def detect_names(text):
-    """Proper names declared in the text.
+    """Nomes próprios declarados no texto.
 
-    Returns the full name and also each part with 3+ letters, so that a later
-    mention of just the first name is masked too. The first name comes first in
-    the list, because that is the form used when restoring: "Prazer, João!"
-    reads better than "Prazer, João Pereira!" in a WhatsApp conversation.
+    Devolve o nome completo e também cada parte com 3+ letras, para que uma
+    menção posterior só ao primeiro nome também seja mascarada. O primeiro nome
+    vem na frente da lista, porque é a forma usada na restauração: "Prazer,
+    João!" soa melhor do que "Prazer, João Pereira!" numa conversa de WhatsApp.
     """
     if not text:
         return []
@@ -124,7 +121,7 @@ def detect_names(text):
 
 
 def _next_alias(mapping, kind):
-    """Generate the next free alias of a kind, based on the existing map."""
+    """Gera o próximo apelido livre do tipo, olhando o mapa já existente."""
     used = []
     for alias in mapping:
         match = _ALIAS.fullmatch(alias)
@@ -135,24 +132,24 @@ def _next_alias(mapping, kind):
 
 
 class Pseudonymizer:
-    """Replaces personal data with stable, reversible aliases."""
+    """Substitui dados pessoais por apelidos estáveis e reversíveis."""
 
     def mask(self, text, mapping=None, names=None):
-        """Return `(masked_text, mapping)`.
+        """Devolve `(texto_mascarado, mapping)`.
 
-        `mapping` is `{alias: original_value}`. Pass the session map so the same
-        e-mail gets the same alias on every turn, otherwise the LLM sees
-        [EMAIL_1] and [EMAIL_2] for one person and gets confused.
+        `mapping` é `{apelido: valor_original}`. Passe o mapa da sessão para que
+        o mesmo e-mail receba o mesmo apelido em todos os turnos, senão o LLM vê
+        [EMAIL_1] e [EMAIL_2] para uma pessoa só e se confunde.
 
-        `names` is the list of known proper names for the lead. Names are not
-        reliably detectable by regex, but we already have them in the profile,
-        so they are masked by exact match.
+        `names` é a lista de nomes próprios conhecidos do lead. Nome não é
+        detectável por regex com confiabilidade, mas já o temos no perfil, então
+        é mascarado por correspondência exata.
         """
         if text is None:
             return "", dict(mapping or {})
 
         mapping = dict(mapping or {})
-        # Reverse index so an already-seen value reuses its alias.
+        # Índice inverso para reaproveitar o apelido de um valor já visto.
         by_value = {value: alias for alias, value in mapping.items()}
         result = text
 
@@ -169,11 +166,11 @@ class Pseudonymizer:
 
             result = pattern.sub(substitute, result)
 
-        # Every variant received belongs to the SAME person: memory is
-        # per-lead, and `names` carries the profile name plus whatever was
-        # declared in the message. Without this, "João Pereira", "João" and
-        # "Pereira" would become [NOME_1], [NOME_2] and [NOME_3], and the LLM
-        # would conclude they are three different people.
+        # Todas as variantes recebidas são da MESMA pessoa: a memória é por
+        # lead, e `names` traz o nome do perfil mais o que foi declarado na
+        # mensagem. Sem isto, "João Pereira", "João" e "Pereira" virariam
+        # [NOME_1], [NOME_2] e [NOME_3], e o LLM concluiria que são três pessoas
+        # diferentes.
         variants = [
             name for name in (names or [])
             if name and len(name) >= MIN_NAME_LENGTH and name != "undefined"
@@ -184,15 +181,15 @@ class Pseudonymizer:
 
             if alias is None:
                 alias = _next_alias(mapping, "NOME")
-                # The first variant is the preferred form when restoring, and
-                # `detect_names` puts the first name at the front.
+                # A primeira variante é a forma preferida na restauração, e
+                # `detect_names` coloca o primeiro nome na frente.
                 mapping[alias] = variants[0]
 
             for variant in variants:
                 by_value[variant] = alias
 
-            # Longest first, otherwise "João" would consume the first half and
-            # leave "[NOME_1] Pereira" behind.
+            # Do mais longo para o mais curto, senão "João" consumiria a
+            # primeira metade e sobraria "[NOME_1] Pereira".
             for variant in sorted(set(variants), key=lambda n: (-len(n), n)):
                 result = re.sub(
                     r"\b%s\b" % re.escape(variant), alias, result, flags=re.IGNORECASE
@@ -201,11 +198,11 @@ class Pseudonymizer:
         return result, mapping
 
     def restore(self, text, mapping):
-        """Swap the aliases back for the real values.
+        """Troca os apelidos de volta pelos valores reais.
 
-        Applied to the LLM reply before it reaches the lead. Aliases the model
-        invented that are not in the map are stripped, so the lead never sees a
-        stray "[EMAIL_7]" on screen.
+        Aplicado na resposta do LLM antes de ela chegar ao lead. Apelidos que o
+        modelo tenha inventado e não estejam no mapa são removidos, para que o
+        lead nunca veja um "[EMAIL_7]" solto na tela.
         """
         if text is None:
             return ""
@@ -218,11 +215,11 @@ class Pseudonymizer:
 
 
 # ---------------------------------------------------------------------------
-# Utilities
+# Utilidades
 # ---------------------------------------------------------------------------
 
 def contains_pii(text):
-    """Kinds of personal data present in the text. Useful in tests and audits."""
+    """Tipos de dado pessoal presentes no texto. Útil em teste e auditoria."""
     if not text:
         return []
 
@@ -230,10 +227,10 @@ def contains_pii(text):
 
 
 def mask_for_log(text, names=None):
-    """IRREVERSIBLE masking, for logs and telemetry.
+    """Mascaramento IRREVERSÍVEL, para logs e telemetria.
 
-    Logs are the classic leak: they sit on disk, ship to an aggregator, and
-    nobody applies retention to them. There is no map to undo this, on purpose.
+    Log é o lugar clássico de vazamento: fica em disco, vai para agregador e
+    ninguém aplica retenção. Aqui não há mapa para desfazer, de propósito.
     """
     if not text:
         return ""

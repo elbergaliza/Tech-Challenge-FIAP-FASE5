@@ -1,39 +1,39 @@
 """
-Hybrid property search matched to a lead's profile.
+Busca híbrida de imóveis compatíveis com o perfil do lead.
 
-The strategy, and why it is hybrid rather than purely vector based:
+A estratégia, e por que ela é híbrida e não puramente vetorial:
 
-  1. STRUCTURED FILTER (eliminating). Price, bedrooms, parking, deal type,
-     region and yield are hard constraints. Vector search fails badly at these:
-     the embedding of "até 500 mil" sits close to that of "800 mil", and a
-     property outside the budget must never surface just because its
-     description reads similarly. These fields are applied as boolean
-     predicates, the equivalent of Azure Cognitive Search's
-     `filter="price lt 500000 and bedrooms ge 3"`.
+  1. FILTRO ESTRUTURADO (eliminatório). Preço, quartos, vagas, tipo de negócio,
+     região e rentabilidade são restrições duras. Busca vetorial erra feio
+     nisso: o embedding de "até 500 mil" fica perto do de "800 mil", e um
+     imóvel fora do orçamento nunca deve aparecer só porque a descrição é
+     parecida. Esses campos entram como predicado booleano, equivalente ao
+     `filter="price lt 500000 and bedrooms ge 3"` do Azure Cognitive Search.
 
-  2. SEMANTIC RANKING (ordering). Among the survivors, order by cosine
-     similarity against the conversation text. This is where "quero algo
-     silencioso para trabalhar de casa" finds "escritório, sol da manhã, rua
+  2. RANKING SEMÂNTICO (ordenação). Entre os que passaram, ordena por
+     similaridade de cosseno com o texto da conversa. É aqui que "quero algo
+     silencioso para trabalhar de casa" encontra "escritório, sol da manhã, rua
      tranquila".
 
-  3. BOOSTING (fine tuning). Small, explainable bonuses for exact
-     neighborhood, exact bedroom count, budget utilisation and yield above
-     expectation. Analogous to Azure's per-field boosting.
+  3. BOOSTING (ajuste fino). Bônus pequenos e explicáveis para bairro exato,
+     número de quartos exato, aproveitamento do orçamento e rentabilidade acima
+     da esperada. Análogo ao boosting por campo do Azure.
 
-  4. PROGRESSIVE RELAXATION. When the hard filter returns nothing, loosen one
-     constraint at a time and record what was loosened. A human SDR does
-     exactly this: "I could not find a 3-bedroom under 500k in Zona Sul, but I
-     have these slightly above budget". Returning an empty list is the worst
-     possible answer for a lead.
+  4. RELAXAMENTO PROGRESSIVO. Se o filtro duro não devolve nada, afrouxa uma
+     restrição por vez e registra o que foi afrouxado. Um SDR humano faz
+     exatamente isso: "não achei nada com 3 quartos até 500 mil na Zona Sul,
+     mas tenho estas opções um pouco acima do orçamento". Devolver lista vazia
+     seria a pior resposta possível para o lead.
 
-Every result carries a `reason` in plain text. It serves three readers: the
-LLM, which paraphrases it for the lead; the broker, who sees it on the
-dashboard; and us, when the ranking looks odd and needs debugging. Cheap
-explainability, in the spirit of what lesson 04 on Privacy asks of AI systems.
+Todo resultado carrega um campo `reason` em texto. Isso serve a três leitores:
+o LLM, que parafraseia na resposta ao lead; o corretor, que vê no dashboard; e
+a gente, quando o ranking sair estranho e for preciso depurar. É
+explicabilidade barata, no espírito do que a Aula 04 de Privacidade pede de
+sistemas de IA.
 
-NOTE ON LANGUAGE: identifiers, field names and enum values are in English.
-Only two things stay in Portuguese: proper nouns as values ("Copacabana") and
-every string a lead or broker reads (`reason`, `mismatches`, the prompt block).
+IDIOMA: identificadores, nomes de campo e valores de enum estão em inglês. Só
+duas coisas ficam em português: nomes próprios como valor ("Copacabana") e todo
+texto que um lead ou corretor lê (`reason`, `mismatches`, o bloco do prompt).
 """
 
 import math
@@ -46,40 +46,40 @@ from .embeddings import get_embedder
 
 EARTH_RADIUS_KM = 6371.0
 
-# Final score weights. Centralised on purpose: these are the business levers of
-# the ranking, and tuning them should not require reading the rest of the file.
+# Pesos do score final. Centralizados de propósito: são as alavancas de negócio
+# do ranking, e mexer neles não deveria exigir ler o resto do arquivo.
 WEIGHT_SIMILARITY = 1.00
 
-# When a lead asks for "near X", proximity is a primary criterion, not a garnish.
+# Quando o lead pede "perto de X", proximidade é critério primário, não enfeite.
 WEIGHT_PROXIMITY = 0.50
 
 BONUS_EXACT_NEIGHBORHOOD = 0.15
 BONUS_EXACT_BEDROOMS = 0.08
 BONUS_MAX_YIELD = 0.10
 
-# Budget utilisation: between two options under the ceiling, the one that uses
-# more of the budget is the better fit. Rewarding "the cheapest" would be wrong;
-# it makes the agent offer a 200k studio to an investor with a 1M ticket.
+# Aproveitamento do orçamento: entre duas opções dentro do teto, a que usa mais
+# do orçamento encaixa melhor. Premiar "o mais barato" seria errado, faz o
+# agente oferecer um studio de 200 mil a um investidor com ticket de 1 milhão.
 BONUS_BUDGET_USAGE = 0.20
 
-# Penalties. They only bite after relaxation, because before that the hard
-# filter would already have removed the property. They exist so that, once
-# loosened, the ranking still prefers what is closest to what the lead asked.
+# Penalidades. Só têm efeito depois de relaxamento, porque antes disso o filtro
+# duro já teria eliminado o imóvel. Servem para que, ao afrouxar, o ranking
+# ainda prefira o que está mais perto do que o lead pediu.
 #
-# Larger than BONUS_BUDGET_USAGE on purpose: a missing bedroom is an unmet
-# need, using the budget well is only a preference. With the smaller weight, a
-# 1-bedroom at the top of the budget beat a 2-bedroom for someone who asked
-# for 4.
+# Maior que BONUS_BUDGET_USAGE de propósito: faltar um quarto é uma necessidade
+# não atendida, aproveitar bem o orçamento é só uma preferência. Com o peso
+# menor, um imóvel de 1 quarto no topo do orçamento vencia um de 2 quartos para
+# quem tinha pedido 4.
 PENALTY_MISSING_BEDROOM = 0.25
 PENALTY_OVER_BUDGET = 0.50
 
 
 # ---------------------------------------------------------------------------
-# Filters
+# Filtros
 # ---------------------------------------------------------------------------
 
 class Filters:
-    """Hard search constraints. A None field means "do not restrict"."""
+    """Restrições duras da busca. Campo None significa "não restringe"."""
 
     FIELDS = (
         "deal_type", "property_type", "min_price", "max_price",
@@ -92,7 +92,7 @@ class Filters:
     def __init__(self, **kwargs):
         unknown = set(kwargs) - set(self.FIELDS)
         if unknown:
-            raise TypeError("unknown filters: %s" % sorted(unknown))
+            raise TypeError("filtros desconhecidos: %s" % sorted(unknown))
 
         for field in self.FIELDS:
             setattr(self, field, kwargs.get(field))
@@ -115,12 +115,12 @@ class Filters:
 
 
 # ---------------------------------------------------------------------------
-# Translating Person 1's profile into filters
+# Tradução do perfil da Pessoa 1 para filtros
 # ---------------------------------------------------------------------------
 
-# Alternation order matters: longer forms first, otherwise "mil" matches inside
-# "milhões" and 2 million becomes 2 thousand. The trailing \b keeps a bare "m"
-# from matching inside words such as "metros".
+# A ordem das alternativas importa: formas mais longas primeiro, senão "mil"
+# casa dentro de "milhões" e 2 milhões viram 2 mil. O \b final impede que o "m"
+# solto case dentro de palavras como "metros".
 _NUMBER_WITH_SCALE = re.compile(
     r"(\d[\d.,]*\d|\d)\s*(milh(?:ao|ão|oes|ões)|mil|mi|m|k)?\b",
     re.IGNORECASE,
@@ -129,16 +129,16 @@ _NUMBER_WITH_SCALE = re.compile(
 _THOUSANDS_DOT = re.compile(r"^\d{1,3}(\.\d{3})+$")
 _THOUSANDS_COMMA = re.compile(r"^\d{1,3}(,\d{3})+$")
 
-# Values below this are noise, not budget: when the range is parsed from free
-# text, numbers like the "3" in "3 quartos" would otherwise become a price.
+# Valores abaixo disto são ruído, não orçamento: quando a faixa é extraída de
+# texto livre, números como o "3" de "3 quartos" entrariam como preço.
 MIN_PLAUSIBLE_VALUE = 100
 
 
 def _to_float(number_text, scale):
-    """Convert a Portuguese number to float, handling the thousands separator.
+    """Converte número em português para float, tratando o ponto de milhar.
 
-    In pt-BR the dot is ambiguous: decimal in "1.5m", thousands in "500.000".
-    Disambiguation uses the shape of the number, not the scale suffix.
+    Em pt-BR o ponto é ambíguo: decimal em "1.5m", milhar em "500.000". A
+    desambiguação usa a forma do número, não o sufixo de escala.
     """
     if _THOUSANDS_DOT.match(number_text):
         cleaned = number_text.replace(".", "")
@@ -159,7 +159,7 @@ def _to_float(number_text, scale):
 
 
 def parse_price_range(text):
-    """Parse a price range from Person 1's output or from raw conversation text.
+    """Interpreta a faixa de preço vinda da Pessoa 1 ou da conversa crua.
 
     >>> parse_price_range("500k-800k")
     (500000.0, 800000.0)
@@ -170,13 +170,13 @@ def parse_price_range(text):
     >>> parse_price_range("undefined")
     (None, None)
 
-    A single value is read as a CEILING, not a floor: when a lead says "tenho
-    300 mil", they are stating the limit of what they can pay.
+    Um valor único é lido como TETO, não como piso: quando o lead diz "tenho
+    300 mil", ele está informando o limite do que pode pagar.
 
-    Integration note: `extrair_preco` in ai-core returns both values through a
-    `set()`, whose string iteration order varies between Python runs. That is
-    why the numbers are sorted here, so "800k-500k" and "500k-800k" produce the
-    same result.
+    Nota de integração: o `extrair_preco` do ai-core devolve os dois valores
+    através de um `set()`, cuja ordem de iteração de strings varia entre
+    execuções do Python. Por isso os números são ordenados aqui, e "800k-500k"
+    e "500k-800k" produzem o mesmo resultado.
     """
     if not text or str(text).strip().lower() in ("undefined", "", "none"):
         return None, None
@@ -210,7 +210,7 @@ def _to_int(value):
 
 
 def parse_percentage(text):
-    """Extract an expected annual return, in percent.
+    """Extrai uma expectativa de retorno em % ao ano.
 
     >>> parse_percentage("espero 8% ao ano")
     8.0
@@ -226,18 +226,17 @@ def parse_percentage(text):
     return float(found.group(1).replace(",", "."))
 
 
-# Lead intent -> what they are actually shopping for. An investor buys, so
-# INVEST maps to SALE plus a yield floor.
+# Intenção do lead -> o que ele de fato procura. Um investidor compra, então
+# INVEST mapeia para SALE mais um piso de rentabilidade.
 _INTENT_TO_DEAL_TYPE = {"BUY": "SALE", "RENT": "RENTAL", "INVEST": "SALE"}
 
 
 def filters_from_profile(profile, expected_return=None, radius_km=None):
-    """Convert a lead profile into Filters.
+    """Converte um perfil de lead em Filters.
 
-    This is the seam between Part 1 and Part 2. It accepts either our English
-    profile or Person 1's raw `dados_coletados`: `lead_profile.from_agent()`
-    normalises both, so callers can pass `resultado["dados_coletados"]` straight
-    through.
+    É a costura entre a Parte 1 e a Parte 2. Aceita tanto o nosso perfil quanto
+    o `dados_coletados` cru da Pessoa 1: o `lead_profile.from_agent()` normaliza
+    os dois, então dá para passar `resultado["dados_coletados"]` direto.
     """
     data = lead_profile.from_agent(profile)
 
@@ -247,9 +246,9 @@ def filters_from_profile(profile, expected_return=None, radius_km=None):
     min_price, max_price = parse_price_range(data.get("price_range"))
     neighborhood, zone = schema.resolve_region(data.get("region"))
 
-    # Investor profile: the expected return becomes a yield floor. If the lead
-    # gave no number, no floor is applied, so ranking still favours profitable
-    # properties without discarding inventory.
+    # Perfil investidor: o retorno esperado vira piso de rentabilidade. Se o
+    # lead não disse um número, nenhum piso é aplicado, então a ordenação ainda
+    # favorece imóveis rentáveis sem descartar estoque.
     min_yield = None
     if intent == "INVEST" and expected_return:
         min_yield = parse_percentage(expected_return)
@@ -274,11 +273,11 @@ def filters_from_profile(profile, expected_return=None, radius_km=None):
 
 
 # ---------------------------------------------------------------------------
-# Geography
+# Geografia
 # ---------------------------------------------------------------------------
 
 def distance_km(lat1, lon1, lat2, lon2):
-    """Haversine. Equivalent to Azure Cognitive Search's `geo.distance()`."""
+    """Haversine. Equivale ao `geo.distance()` do Azure Cognitive Search."""
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
 
@@ -290,7 +289,7 @@ def distance_km(lat1, lon1, lat2, lon2):
 
 
 # ---------------------------------------------------------------------------
-# Applying the filters
+# Aplicação dos filtros
 # ---------------------------------------------------------------------------
 
 def _matches(prop, filters):
@@ -346,27 +345,27 @@ def _matches(prop, filters):
 
 
 def apply_filters(index, filters):
-    """Return the set of ids satisfying every hard constraint."""
+    """Devolve o conjunto de ids que satisfazem todas as restrições duras."""
     return {d["id"] for d in index.documents if _matches(d, filters)}
 
 
 # ---------------------------------------------------------------------------
-# Progressive relaxation
+# Relaxamento progressivo
 # ---------------------------------------------------------------------------
 
 def _relaxation_steps(original):
-    """Loosening steps, from least to most costly for the lead.
+    """Sequência de afrouxamentos, do menos ao mais custoso para o lead.
 
-    The order is a business decision, not a technical one: showing a property
-    15% over budget hurts less than showing one in the wrong neighborhood, and
-    widening from neighborhood to zone hurts less than leaving the zone. The
-    bedroom count is only really loosened at the end, because someone who needs
-    4 bedrooms needs 4 bedrooms.
+    A ordem é decisão de negócio, não técnica: mostrar um imóvel 15% acima do
+    orçamento machuca menos do que mostrar um no bairro errado, e ampliar do
+    bairro para a zona machuca menos do que sair da zona. O número de quartos
+    só é flexibilizado de verdade no fim, porque quem precisa de 4 quartos
+    precisa de 4 quartos.
 
-    Each step is computed from the ORIGINAL filters, not from the current
-    state. That way "budget widened by 40%" means 40% above what the lead said,
-    not 40% above the previous step, and the label sent to the LLM prompt is
-    literally true.
+    Cada nível é calculado a partir dos filtros ORIGINAIS, não do estado
+    corrente. Assim "orçamento ampliado em 40%" significa 40% acima do que o
+    lead disse, e não 40% acima do nível anterior, e o rótulo que vai para o
+    prompt do LLM é literalmente verdadeiro.
     """
     steps = []
 
@@ -413,10 +412,10 @@ def _relaxation_steps(original):
             lambda f: f.replace(max_price=original.max_price * 1.40),
         ))
 
-    # Last geographic resort. Included whenever ANY geographic restriction
-    # existed, including when the lead asked for a neighborhood: the previous
-    # step already swapped neighborhood for zone, and without this one the
-    # search would stay stuck in the zone and could end up empty.
+    # Último recurso geográfico. Entra sempre que houve QUALQUER restrição
+    # geográfica, inclusive quando o lead pediu um bairro: o nível anterior já
+    # trocou bairro por zona, e sem este a busca ficaria presa na zona e poderia
+    # terminar vazia.
     if original.zone or original.neighborhood or original.city:
         steps.append((
             "busca estendida para fora da região pedida",
@@ -429,10 +428,10 @@ def _relaxation_steps(original):
             lambda f: f.replace(min_bedrooms=1),
         ))
 
-    # Final resort. Keeps only the deal type, the one constraint it never makes
-    # sense to violate: never offer a sale to someone who wants to rent. It
-    # guarantees the lead gets some option instead of silence, and the label is
-    # explicit so the LLM warns that the profile was not met.
+    # Último recurso. Mantém só o tipo de negócio, a única restrição que nunca
+    # faz sentido violar: nunca oferecer venda a quem quer alugar. Garante que o
+    # lead receba alguma opção em vez de silêncio, e o rótulo é explícito para
+    # que o LLM avise que fugiu do perfil.
     steps.append((
         "mostrando as opções mais próximas, fora dos critérios informados",
         lambda f: Filters(deal_type=original.deal_type),
@@ -442,7 +441,7 @@ def _relaxation_steps(original):
 
 
 # ---------------------------------------------------------------------------
-# Scoring and reasons
+# Score e motivos
 # ---------------------------------------------------------------------------
 
 def _currency(value):
@@ -460,18 +459,18 @@ def _currency(value):
 
 
 def _score(prop, similarity, original, distance=None, radius_reference=None):
-    """Final score plus the list of reasons that justify it.
+    """Score final e a lista de motivos que o justificam.
 
-    `original` are the filters the LEAD asked for, not the relaxed ones. That
-    is what lets the reason say "19% acima do orçamento" instead of pretending
-    the property is within budget.
+    `original` são os filtros que o LEAD pediu, não os relaxados. É o que
+    permite dizer "19% acima do orçamento" em vez de fingir que o imóvel está
+    dentro do orçamento.
 
-    Reason strings stay in Portuguese: they reach the lead and the broker.
+    Os motivos ficam em português: chegam ao lead e ao corretor.
     """
     score = WEIGHT_SIMILARITY * similarity
     reasons = []
 
-    # -- location -----------------------------------------------------------
+    # -- localização --------------------------------------------------------
 
     if original.neighborhood and prop.get("neighborhood") == original.neighborhood:
         score += BONUS_EXACT_NEIGHBORHOOD
@@ -484,7 +483,7 @@ def _score(prop, similarity, original, distance=None, radius_reference=None):
         score += WEIGHT_PROXIMITY * proximity
         reasons.append("a %.1f km do ponto de referência" % distance)
 
-    # -- bedrooms -----------------------------------------------------------
+    # -- quartos ------------------------------------------------------------
 
     if original.min_bedrooms is not None:
         bedrooms = prop.get("bedrooms") or 0
@@ -498,7 +497,7 @@ def _score(prop, similarity, original, distance=None, radius_reference=None):
             score -= PENALTY_MISSING_BEDROOM * missing
             reasons.append("%d quartos, %d a menos do que pediu" % (bedrooms, missing))
 
-    # -- budget -------------------------------------------------------------
+    # -- orçamento ----------------------------------------------------------
 
     if original.max_price is not None:
         price = prop.get("price") or 0
@@ -517,7 +516,7 @@ def _score(prop, similarity, original, distance=None, radius_reference=None):
             else:
                 reasons.append("bem abaixo do orçamento")
 
-    # -- yield (investor profile) -------------------------------------------
+    # -- rentabilidade (perfil investidor) ----------------------------------
 
     yield_pct = prop.get("annual_yield_pct")
     if original.min_yield is not None and yield_pct is not None:
@@ -533,7 +532,7 @@ def _score(prop, similarity, original, distance=None, radius_reference=None):
 
 def _build_reason(prop, reasons):
     summary = "%s de %d quartos em %s, %s, %d m2" % (
-        # Portuguese label: this string is read by the lead and the broker.
+        # Rótulo em português: esta string é lida pelo lead e pelo corretor.
         schema.PROPERTY_TYPE_LABELS.get(prop.get("property_type"), "Imóvel"),
         prop.get("bedrooms") or 0,
         prop.get("neighborhood", "-"),
@@ -585,15 +584,15 @@ class RecommendedProperty:
 
 
 def _mismatch_notes(recommendations, original):
-    """Describe, constraint by constraint, how the result differs from the ask.
+    """Descreve, restrição por restrição, como o resultado difere do pedido.
 
-    This exists because the relaxation ladder is a fact about the SEARCH, not
-    about the RESULT: the ladder may climb five steps and the returned
-    properties still respect everything the lead asked for. Sending the raw
-    steps to the prompt made the LLM tell the lead "I had to widen your budget"
-    when it had not. These notes look at what was actually returned.
+    Existe porque a escada de relaxamento é um fato sobre a BUSCA, não sobre o
+    RESULTADO: ela pode subir cinco degraus e os imóveis devolvidos ainda
+    respeitarem tudo o que o lead pediu. Mandar os degraus crus para o prompt
+    fazia o LLM dizer ao lead "precisei ampliar seu orçamento" quando não
+    precisou. Estas notas olham o que de fato foi devolvido.
 
-    Note strings stay in Portuguese: they end up in front of the lead.
+    As notas ficam em português: elas chegam na frente do lead.
     """
     properties = [r.property for r in recommendations]
     if not properties:
@@ -675,12 +674,12 @@ def _mismatch_notes(recommendations, original):
 
 
 class SearchResult:
-    """Result of a search.
+    """Resultado da busca.
 
-    relaxations  ladder steps that were walked. A fact about the search.
-    mismatches   how the RETURNED properties differ from what the lead asked
-                 for. This is what goes into the LLM prompt, because it is what
-                 the lead needs to hear. Empty means everything matched.
+    relaxations  degraus da escada percorridos. Fato sobre a busca.
+    mismatches   como os imóveis DEVOLVIDOS diferem do que o lead pediu. É o
+                 que vai para o prompt do LLM, porque é o que o lead precisa
+                 ouvir. Vazio significa que tudo bateu com o pedido.
     """
 
     def __init__(self, recommendations, relaxations, candidate_count, filters_used,
@@ -699,7 +698,7 @@ class SearchResult:
 
     @property
     def was_relaxed(self):
-        """True when some returned property falls short of what the lead asked."""
+        """Verdadeiro quando algum imóvel devolvido foge do que o lead pediu."""
         return bool(self.mismatches)
 
     @property
@@ -717,16 +716,16 @@ class SearchResult:
 
 
 # ---------------------------------------------------------------------------
-# Search
+# Busca
 # ---------------------------------------------------------------------------
 
 def search(index, filters, query_text="", embedder=None, top_k=3,
            allow_relaxation=True):
-    """Hybrid search. Always returns a SearchResult, never None.
+    """Busca híbrida. Devolve sempre um SearchResult, nunca None.
 
-    `query_text` should be the free text of the conversation (the lead's most
-    recent messages), not a structured summary: it carries the semantic signal
-    the filters cannot capture.
+    `query_text` deve ser o texto livre da conversa (as últimas mensagens do
+    lead), não um resumo estruturado: é ele que carrega o sinal semântico que
+    os filtros não capturam.
     """
     embedder = embedder or get_embedder(prefer="hashing")
 
@@ -750,9 +749,9 @@ def search(index, filters, query_text="", embedder=None, top_k=3,
     query_vector = embedder.embed_query(query_text or "")
     ranked = index.similarities(query_vector, allowed_ids=ids)
 
-    # Reference for the proximity score: the radius actually used in the search
-    # (already relaxed, if relaxation happened). With no declared radius, use an
-    # urban scale so distance still orders instead of being ignored.
+    # Referência para a nota de proximidade: o raio efetivamente usado na busca
+    # (já relaxado, se houve relaxamento). Sem raio declarado, usa uma escala
+    # urbana para que a distância ainda ordene em vez de ser ignorada.
     radius_reference = current_filters.radius_km or original_filters.radius_km or 15.0
 
     recommendations = []
@@ -791,7 +790,7 @@ def search(index, filters, query_text="", embedder=None, top_k=3,
 
 def search_for_lead(index, profile, query_text="", embedder=None,
                     top_k=3, expected_return=None, radius_km=None):
-    """Integration shortcut: takes Person 1's dict (or our profile) and searches."""
+    """Atalho de integração: recebe o dict da Pessoa 1 (ou nosso perfil) e busca."""
     filters = filters_from_profile(
         profile,
         expected_return=expected_return,
@@ -801,18 +800,17 @@ def search_for_lead(index, profile, query_text="", embedder=None,
 
 
 # ---------------------------------------------------------------------------
-# Output for the agent prompt
+# Saída para o prompt do agente
 # ---------------------------------------------------------------------------
 
 def format_for_prompt(result):
-    """Render the result as a text block to inject into the LLM prompt.
+    """Renderiza o resultado como bloco de texto para injetar no prompt do LLM.
 
-    The format is designed to be cheap in tokens and hard for the model to
-    hallucinate on top of: every property numbered, with an explicit id, so the
-    reply to the lead can cite real properties and the broker can trace them
-    later.
+    O formato é pensado para ser barato em tokens e difícil de o modelo alucinar
+    em cima: cada imóvel numerado, com id explícito, para que a resposta ao lead
+    possa citar imóveis reais e o corretor consiga rastreá-los depois.
 
-    Portuguese, because it goes into a Portuguese prompt.
+    Em português, porque entra num prompt em português.
     """
     if not result.recommendations:
         return (

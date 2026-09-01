@@ -1,46 +1,44 @@
 """
-Intelligent summary for the broker, and incremental summary for memory.
+Resumo inteligente para o corretor, e resumo incremental para a memória.
 
-Two different products, with different readers:
+São dois produtos diferentes, com leitores diferentes:
 
-  BROKER SUMMARY       goes on the dashboard. In ten seconds of reading it must
-                       answer: who is this lead, what do they want, how hot are
-                       they, and what do I do now.
+  RESUMO PARA O CORRETOR   vai para o dashboard. Precisa responder, em dez
+                           segundos de leitura: quem é este lead, o que ele
+                           quer, quão quente está e o que eu faço agora.
 
-  INCREMENTAL SUMMARY  goes into the agent prompt. It compresses the old
-                       conversation into a few lines so the context does not
-                       grow without bound, preserving whatever changes a
-                       decision.
+  RESUMO INCREMENTAL       vai para o prompt do agente. Precisa comprimir a
+                           conversa antiga em poucas linhas para o contexto não
+                           crescer sem limite, preservando o que muda decisão.
 
-Both degrade gracefully: with no `GEMINI_API_KEY`, no network or an API outage,
-a deterministic heuristic path produces a poorer but correct and immediate
-summary. The `source` field says where it came from ("llm" or "heuristic"), so
-the interface never presents rule-written text as if it were AI-written.
+Ambos degradam com elegância: sem `GEMINI_API_KEY`, sem rede ou com a API fora
+do ar, um caminho heurístico determinístico produz um resumo mais pobre, porém
+correto e imediato. O campo `source` diz de onde veio ("llm" ou "heuristic"),
+para que a interface nunca apresente texto de regra como se fosse de IA.
 
-The temperature score is DELIBERATELY rule based rather than a model. With
-dozens of synthetic leads, an Isolation Forest would give the appearance of
-rigour without the rigour: the Anomaly Detection lessons themselves insist the
-central problem is threshold definition and validation against realistic data.
-A seven-factor rule is auditable, the broker understands why a lead is hot, and
-it is defensible in front of the panel. Swapping in a model later means
-replacing `compute_score`.
+O score de temperatura é DELIBERADAMENTE baseado em regras, e não num modelo.
+Com dezenas de leads sintéticos, um Isolation Forest daria a aparência de rigor
+sem o rigor: as próprias aulas de Detecção de Anomalias insistem que o problema
+central é a definição do limiar e a validação com dados realistas. Uma regra de
+sete fatores é auditável, o corretor entende por que o lead está quente, e é
+defensável na banca. Trocar por um modelo depois é substituir `compute_score`.
 
-NOTE ON LANGUAGE: identifiers, field names and enum values are in English.
-Prompts and every string a broker or lead reads stay in Portuguese; the
-*_LABELS maps carry that rendering.
+IDIOMA: identificadores, nomes de campo e valores de enum estão em inglês.
+Prompts e toda string que um corretor ou lead lê ficam em português; os mapas
+*_LABELS carregam essa renderização.
 """
 
 import lead_profile
-from lead_profile import has_contact, is_known
+from lead_profile import DODGE_THRESHOLD, has_contact, is_known
 from llm import extract_json, get_client
 from privacy import Pseudonymizer
 
 # ---------------------------------------------------------------------------
-# Lead temperature score
+# Score de temperatura do lead
 # ---------------------------------------------------------------------------
-# These sum to 100. Contact weighs as much as intent because a perfectly
-# qualified lead with no phone or e-mail is a lead the broker cannot reach: for
-# an SDR, contact is the final product.
+# Somam 100. Contato pesa tanto quanto intenção porque um lead perfeitamente
+# qualificado sem telefone nem e-mail é um lead que o corretor não consegue
+# atender: para um SDR, contato é o produto final.
 SCORE_WEIGHTS = {
     "intent": 20,
     "contact": 20,
@@ -51,8 +49,8 @@ SCORE_WEIGHTS = {
     "engagement": 10,
 }
 
-# A lead that scored 80 and vanished a month ago is not hot. The silence
-# penalty keeps the dashboard from sending the broker after a dead lead.
+# Um lead que pontuou 80 e sumiu há um mês não está quente. A penalidade por
+# silêncio evita que o dashboard mande o corretor atrás de lead morto.
 SILENCE_PENALTIES = (
     (48, 0),
     (24 * 7, 10),
@@ -63,7 +61,7 @@ MAX_SILENCE_PENALTY = 40
 HOT_THRESHOLD = 70
 WARM_THRESHOLD = 40
 
-# Portuguese labels for the temperature shown on the dashboard.
+# Rótulos em português para a temperatura mostrada no dashboard.
 TEMPERATURE_LABELS = {"HOT": "QUENTE", "WARM": "MORNO", "COLD": "FRIO"}
 
 TEMPERATURE_ICONS = {"HOT": "🔥", "WARM": "🌤️", "COLD": "❄️"}
@@ -80,12 +78,12 @@ def _silence_penalty(hours):
 
 
 def compute_score(profile, lead_messages=0, hours_of_silence=0.0):
-    """Score from 0 to 100, plus the factors that make it up.
+    """Score de 0 a 100, e a lista de fatores que o compõem.
 
-    Returns the factors and not just the number, because the broker needs to
-    know WHY a lead is hot in order to decide what to say on the call.
+    Devolve os fatores, e não só o número, porque o corretor precisa saber POR
+    QUE o lead está quente para decidir o que dizer na ligação.
 
-    Factor strings are Portuguese: they surface on the dashboard.
+    Os fatores ficam em português: aparecem no dashboard.
     """
     profile = profile or {}
     factors = []
@@ -129,11 +127,11 @@ def classify_temperature(score):
 
 
 # ---------------------------------------------------------------------------
-# Actionable alerts
+# Alertas acionáveis
 # ---------------------------------------------------------------------------
 
 def build_alerts(profile, state):
-    """What is blocking this lead. Becomes a badge on the dashboard."""
+    """O que está travando este lead. Vira badge no dashboard."""
     alerts = []
 
     if not has_contact(profile):
@@ -144,6 +142,15 @@ def build_alerts(profile, state):
 
     if not is_known(profile.get("price_range")):
         alerts.append("Orçamento não informado")
+
+    dodged = {f: n for f, n in state.get("unanswered", {}).items()
+              if n >= DODGE_THRESHOLD}
+    if dodged:
+        alerts.append(
+            "Lead se esquiva de: %s"
+            % ", ".join(lead_profile.FIELD_LABELS[f].lower()
+                        for f in sorted(dodged))
+        )
 
     if state.get("followups_sent", 0) >= 3:
         alerts.append("%d follow-ups sem resposta: considerar encerrar"
@@ -156,7 +163,7 @@ def build_alerts(profile, state):
 
 
 def suggest_next_action(profile, temperature, state):
-    """Rule-based next action. The field the broker uses most."""
+    """Próxima ação por regra. É o campo que o corretor mais usa."""
     if not is_known(profile.get("intent")):
         return "Descobrir se é compra, aluguel ou investimento"
 
@@ -185,18 +192,19 @@ def suggest_next_action(profile, temperature, state):
 # ---------------------------------------------------------------------------
 # Prompts
 # ---------------------------------------------------------------------------
-# Prompt decisions, since the prompt discipline has no written material:
-#   * role and task stated explicitly on the first line;
-#   * output format declared as JSON and repeated at the end, which is where
-#     the model pays most attention;
-#   * explicit ban on inventing, because a summary is where hallucination does
-#     the most damage: the broker calls believing a fact the lead never said;
-#   * instruction to leave a field empty when unsure, rather than guessing;
-#   * the [NOME_1] and [EMAIL_1] aliases are explained, otherwise the model
-#     tries to "fix" them into invented names.
+# Decisões de prompt, já que a disciplina de prompts não tem material escrito:
+#   * papel e tarefa explícitos na primeira linha;
+#   * formato de saída declarado como JSON e repetido no fim, que é onde o
+#     modelo mais presta atenção;
+#   * proibição explícita de inventar, porque resumo é onde alucinação causa
+#     mais estrago: o corretor liga acreditando num dado que o lead nunca disse;
+#   * instrução para deixar o campo vazio quando não souber, em vez de chutar;
+#   * os apelidos [NOME_1] e [EMAIL_1] são explicados, senão o modelo tenta
+#     "corrigi-los" para nomes inventados.
 #
-# Prompts are written in Portuguese so prompt and output share the language of
-# the product, and so the team can review the text the agent will say.
+# Os prompts são escritos em português para que prompt e saída compartilhem o
+# idioma do produto, e para que o time consiga revisar o texto que o agente vai
+# dizer ao lead.
 
 PROMPT_BROKER_SUMMARY = """Você é um analista de vendas de uma imobiliária. \
 Leia a conversa entre um agente SDR e um lead e produza um resumo para o \
@@ -244,7 +252,7 @@ Responda apenas com o texto comprimido."""
 
 
 # ---------------------------------------------------------------------------
-# Broker summary
+# Resumo para o corretor
 # ---------------------------------------------------------------------------
 
 class BrokerSummary:
@@ -276,8 +284,8 @@ class BrokerSummary:
             "profile": self.profile,
             "score": self.score,
             "temperature": self.temperature,
-            # Portuguese rendering shipped alongside the enum, so the dashboard
-            # does not have to carry its own translation table.
+            # Renderização em português junto do enum, para o dashboard não
+            # precisar carregar a própria tabela de tradução.
             "temperature_label": TEMPERATURE_LABELS[self.temperature],
             "factors": self.factors,
             "alerts": self.alerts,
@@ -294,7 +302,7 @@ class BrokerSummary:
         }
 
     def to_markdown(self):
-        """Block ready for the dashboard card (Part 4)."""
+        """Bloco pronto para o card do dashboard (Parte 4)."""
         lines = [
             "### %s %s  ·  score %d/100" % (
                 TEMPERATURE_ICONS[self.temperature],
@@ -335,7 +343,7 @@ class Summarizer:
         self.client = client if client is not None else get_client()
         self.pseudo = pseudonymizer or Pseudonymizer()
 
-    # -- broker summary -----------------------------------------------------
+    # -- resumo para o corretor ---------------------------------------------
 
     def summarize_for_broker(self, memory, lead_id, use_llm=True):
         state = memory.state(lead_id)
@@ -366,8 +374,8 @@ class Summarizer:
             content = self._summary_via_llm(memory, lead_id, profile)
 
         if content:
-            # The LLM's suggested next action is used only if it returned one;
-            # the rule is the floor, because this field can never be empty.
+            # A próxima ação sugerida pelo LLM só entra se ele devolveu uma; a
+            # regra é o piso, porque este campo nunca pode ficar vazio.
             base["next_action"] = content.get("next_action") or base["next_action"]
             return BrokerSummary(
                 summary=content.get("summary") or _heuristic_summary(profile, state),
@@ -386,10 +394,10 @@ class Summarizer:
         )
 
     def _summary_via_llm(self, memory, lead_id, profile):
-        """Call the LLM with the pseudonymised conversation; return dict or None.
+        """Chama o LLM com a conversa pseudonimizada e devolve o dict, ou None.
 
-        Silent failure is a product decision: if Gemini goes down, the dashboard
-        shows the rule-built summary instead of an error screen.
+        Falha silenciosa por decisão de produto: se o Gemini cair, o dashboard
+        mostra o resumo por regra em vez de uma tela de erro.
         """
         conversation = _format_conversation(
             memory.history(lead_id, window=None, mask=True)
@@ -411,17 +419,17 @@ class Summarizer:
         if not isinstance(content, dict):
             return None
 
-        # The broker is an authorised recipient: aliases become real data again
-        # before reaching the dashboard.
+        # O corretor é destinatário autorizado: os apelidos voltam a ser dados
+        # reais antes de chegar ao dashboard.
         return _restore_deep(content, self.pseudo, memory.alias_map(lead_id))
 
-    # -- incremental summary for memory -------------------------------------
+    # -- resumo incremental para a memória ----------------------------------
 
     def compress_memory(self, memory, lead_id, force=False):
-        """Summarise the old middle of the conversation and store it.
+        """Resume o miolo antigo da conversa e grava na memória.
 
-        Returns the summary text, or None when there was nothing to compress.
-        The live window of recent messages is never touched.
+        Devolve o texto do resumo, ou None quando não havia o que comprimir. A
+        janela viva de mensagens recentes nunca é tocada.
         """
         if not force and not memory.needs_summary(lead_id):
             return None
@@ -474,7 +482,7 @@ class Summarizer:
 
 
 # ---------------------------------------------------------------------------
-# Heuristic path
+# Caminho heurístico
 # ---------------------------------------------------------------------------
 
 _INTENT_VERB = {
@@ -497,13 +505,13 @@ def _heuristic_interest(profile):
 
 
 def _heuristic_summary(profile, state):
-    """Rule-built summary, no LLM. Poorer, but always correct."""
+    """Resumo montado por regra, sem LLM. Mais pobre, porém sempre correto."""
     sentences = []
 
     interest = _heuristic_interest(profile)
     name = profile.get("name")
     if is_known(name):
-        # "Lead quer comprar..." becomes "João quer comprar...".
+        # "Lead quer comprar..." vira "João quer comprar...".
         interest = "%s %s" % (name, interest.replace("Lead ", "", 1))
     sentences.append(interest)
 
@@ -527,11 +535,10 @@ def _heuristic_summary(profile, state):
 
 
 def _heuristic_compression(chunk, previous, profile):
-    """Compression without an LLM: keep the profile, count what was dropped.
+    """Compressão sem LLM: guarda o perfil e conta o volume descartado.
 
-    It does not try to imitate a written summary. It says what it knows and
-    admits what it does not have, which beats producing invented text with no
-    model behind it.
+    Não tenta imitar um resumo escrito. Diz o que sabe e admite o que não tem,
+    o que é preferível a produzir texto inventado sem modelo por trás.
     """
     from_lead = [m for m in chunk if m["role"] == "user"]
 
@@ -554,7 +561,7 @@ def _heuristic_compression(chunk, previous, profile):
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Auxiliares
 # ---------------------------------------------------------------------------
 
 def _format_conversation(history):
@@ -587,11 +594,11 @@ def _restore_deep(value, pseudo, mapping):
 
 
 def summarize_pipeline(memory, summarizer=None, use_llm=False):
-    """Summarise every lead, ordered by temperature.
+    """Resume todos os leads, ordenados por temperatura.
 
-    This is the query that feeds the dashboard list. `use_llm=False` by default
-    because sweeping the whole pipeline with one Gemini call per lead is slow
-    and expensive; the rich summary is generated when a specific lead is opened.
+    É a consulta que alimenta a lista do dashboard. `use_llm=False` por padrão
+    porque varrer a carteira inteira chamando o Gemini por lead é caro e lento;
+    o resumo rico é gerado ao abrir um lead específico.
     """
     summarizer = summarizer or Summarizer(client=get_client("unavailable"))
 

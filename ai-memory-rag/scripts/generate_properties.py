@@ -1,26 +1,27 @@
 """
-Generator for the simulated property base.
+Gerador da base simulada de imóveis.
 
-Writes two files under `shared/`, because they are a team contract rather than
-a private artifact of this module:
+Escreve dois arquivos em `shared/`, porque são contrato de time e não artefato
+privado deste módulo:
 
-    shared/data/imoveis.json           the base itself (Person 3 loads it)
-    shared/schemas/imovel_schema.json  the JSON Schema of the document
+    shared/data/imoveis.json           a base em si (a Pessoa 3 carrega)
+    shared/schemas/imovel_schema.json  o JSON Schema do documento
 
-The generator is deterministic (fixed seed). Running it twice produces a
-byte-identical file, so the JSON can be versioned in git without spurious diffs.
-Do not reorder the random calls below: doing so changes the whole base.
+O gerador é determinístico (semente fixa). Rodar duas vezes produz byte a byte
+o mesmo arquivo, então o JSON pode ser versionado no git sem diff espúrio. Não
+reordene as chamadas do random abaixo: isso muda a base inteira.
 
-A synthetic base is a design decision, not a shortcut: lesson 04 of "Privacidade
-e Proteção de Dados" lists synthetic data generation as a privacy protection
-technique, precisely so AI systems are neither trained nor demonstrated on real
-people's data. There is not a single real property, address or owner here.
+Base sintética é decisão de projeto, não atalho: a Aula 04 de "Privacidade e
+Proteção de Dados" lista geração de dados sintéticos como técnica de proteção de
+privacidade, justamente para não treinar nem demonstrar sistemas de IA sobre
+dados reais de pessoas. Não há um único imóvel, endereço ou proprietário real
+aqui.
 
-NOTE ON LANGUAGE: field names and enum values are in English. Only two things
-stay in Portuguese: proper nouns as values ("Copacabana", "Zona Sul") and the
-listing copy in `title`/`description`/`features`, which is text a lead reads.
+IDIOMA: nomes de campo e valores de enum estão em inglês. Só duas coisas ficam
+em português: nomes próprios como valor ("Copacabana", "Zona Sul") e o texto do
+anúncio em `title`/`description`/`features`, que é o que o lead lê.
 
-Usage:
+Uso:
     python ai-memory-rag/scripts/generate_properties.py
     python ai-memory-rag/scripts/generate_properties.py --total 120
 """
@@ -41,12 +42,12 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 DATA_TARGET = os.path.join(ROOT, "shared", "data", "imoveis.json")
 SCHEMA_TARGET = os.path.join(ROOT, "shared", "schemas", "imovel_schema.json")
 
-# Neighborhoods near the beach: they get their own features and descriptions.
+# Bairros com praia perto: ganham características e descrições próprias.
 BEACH_NEIGHBORHOODS = {
     "Leblon", "Ipanema", "Copacabana", "Barra", "Recreio", "Vidigal", "Niterói",
 }
 
-# Price multiplier per property type, applied over the neighborhood's price/m2.
+# Multiplicador de preço por tipo de imóvel sobre o preço por m2 do bairro.
 TYPE_FACTOR = {
     "APARTMENT": 1.00,
     "PENTHOUSE": 1.35,
@@ -55,7 +56,7 @@ TYPE_FACTOR = {
     "COMMERCIAL": 0.80,
 }
 
-# Plausible area per bedroom count (min, max).
+# Área plausível por número de quartos (min, max).
 AREA_BY_BEDROOMS = {
     0: (24, 38),
     1: (38, 55),
@@ -192,9 +193,9 @@ def generate(total=140, seed=SEED):
     properties = []
     counter = 0
 
-    # Distributed by neighborhood in rounds, so every neighborhood in the
-    # catalogue holds inventory for both deal types. Without that, a lead asking
-    # for a specific neighborhood falls into relaxation for no reason.
+    # Distribuição por bairro em rodadas, para garantir que todo bairro do
+    # catálogo tenha estoque nos dois tipos de negócio. Sem isso, um lead que
+    # pede um bairro específico cai no relaxamento sem necessidade.
     round_index = 0
     while counter < total:
         for neighborhood_index, neighborhood in enumerate(neighborhoods):
@@ -203,10 +204,10 @@ def generate(total=140, seed=SEED):
 
             zone, city, lat, lon, price_m2 = schema.NEIGHBORHOODS[neighborhood]
 
-            # A third of the base is rental, spread along the diagonal
-            # (round + neighborhood) so each neighborhood receives both deal
-            # types across rounds, instead of whole rounds of a single type.
-            # Without this, a neighborhood could end up with no rentals at all.
+            # Um terço da base é locação, distribuída na diagonal
+            # (rodada + bairro) para que cada bairro receba os dois tipos de
+            # negócio ao longo das rodadas, em vez de rodadas inteiras de um só
+            # tipo. Sem isso, um bairro podia terminar sem nenhum aluguel.
             if (round_index + neighborhood_index) % 3 == 0:
                 deal_type = "RENTAL"
             else:
@@ -220,11 +221,11 @@ def generate(total=140, seed=SEED):
                 area_min, area_max = area_min * 1.2, area_max * 1.5
             area = round(rng.uniform(area_min, area_max), 1)
 
-            # Reference sale value, with market dispersion.
+            # Valor de venda de referência, com dispersão de mercado.
             sale_value = area * price_m2 * TYPE_FACTOR[property_type] * rng.uniform(0.82, 1.18)
             sale_value = round(sale_value / 1000) * 1000
 
-            # Typical monthly yield in the Rio market: 0.35% to 0.55%.
+            # Rentabilidade mensal típica do mercado carioca: 0,35% a 0,55%.
             monthly_factor = rng.uniform(0.0035, 0.0055)
 
             if deal_type == "RENTAL":
@@ -256,15 +257,15 @@ def generate(total=140, seed=SEED):
                 "neighborhood": neighborhood,
                 "zone": zone,
                 "city": city,
-                # ~1 km of jitter so geographic search has something to order
-                # within a single neighborhood.
+                # Jitter de ~1 km para que a busca geográfica tenha o que
+                # ordenar dentro de um mesmo bairro.
                 "lat": round(lat + rng.uniform(-0.009, 0.009), 6),
                 "lon": round(lon + rng.uniform(-0.009, 0.009), 6),
                 "features": _pick_features(rng, neighborhood, property_type),
                 "accepts_financing": deal_type == "SALE" and rng.random() < 0.85,
                 "annual_yield_pct": annual_yield,
-                # Some deliberately unavailable: the status filter needs a
-                # visible effect, otherwise nobody notices it exists.
+                # Alguns indisponíveis de propósito: o filtro de status precisa
+                # ter efeito visível, senão ninguém percebe que ele existe.
                 "status": rng.choices(
                     ["AVAILABLE", "RESERVED", "SOLD"],
                     weights=[88, 8, 4],
@@ -286,9 +287,9 @@ JSON_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "Property",
     "description": (
-        "Property document from the simulated base of the Real Estate SDR Agent. "
-        "Generated by ai-memory-rag/scripts/generate_properties.py. "
-        "100% synthetic data."
+        "Documento de imovel da base simulada do Agente SDR Imobiliario. "
+        "Gerado por ai-memory-rag/scripts/generate_properties.py. "
+        "Dados 100% sinteticos."
     ),
     "type": "object",
     "required": list(schema.REQUIRED_FIELDS),
@@ -300,7 +301,7 @@ JSON_SCHEMA = {
         "deal_type": {"type": "string", "enum": list(schema.DEAL_TYPES)},
         "property_type": {"type": "string", "enum": list(schema.PROPERTY_TYPES)},
         "price": {"type": "number", "exclusiveMinimum": 0,
-                  "description": "sale value or monthly rent, depending on deal_type"},
+                  "description": "valor de venda ou aluguel mensal, conforme deal_type"},
         "condo_fee": {"type": "number", "minimum": 0},
         "property_tax": {"type": "number", "minimum": 0},
         "bedrooms": {"type": "integer", "minimum": 0},
@@ -317,7 +318,7 @@ JSON_SCHEMA = {
         "accepts_financing": {"type": "boolean"},
         "annual_yield_pct": {
             "type": ["number", "null"],
-            "description": "estimated annual yield; null when deal_type is RENTAL",
+            "description": "rentabilidade anual estimada; null quando deal_type e RENTAL",
         },
         "status": {"type": "string", "enum": list(schema.STATUSES)},
         "updated_at": {"type": "string", "format": "date"},
@@ -337,20 +338,20 @@ def _report(properties):
     sales = [p["price"] for p in available if p["deal_type"] == "SALE"]
     rentals = [p["price"] for p in available if p["deal_type"] == "RENTAL"]
 
-    print("Total: %d properties (%d available)" % (len(properties), len(available)))
-    print("By deal type: %s" % count_by("deal_type"))
-    print("By zone: %s" % count_by("zone"))
-    print("By bedrooms: %s" % count_by("bedrooms"))
+    print("Total: %d imóveis (%d disponíveis)" % (len(properties), len(available)))
+    print("Por tipo de negócio: %s" % count_by("deal_type"))
+    print("Por zona: %s" % count_by("zone"))
+    print("Por quartos: %s" % count_by("bedrooms"))
     if sales:
-        print("Sale:   R$ %s to R$ %s"
+        print("Venda:   R$ %s a R$ %s"
               % (format(int(min(sales)), ","), format(int(max(sales)), ",")))
     if rentals:
-        print("Rental: R$ %s to R$ %s"
+        print("Aluguel: R$ %s a R$ %s"
               % (format(int(min(rentals)), ","), format(int(max(rentals)), ",")))
 
 
 def _main():
-    parser = argparse.ArgumentParser(description="Generate the simulated property base.")
+    parser = argparse.ArgumentParser(description="Gera a base simulada de imóveis.")
     parser.add_argument("--total", type=int, default=140)
     parser.add_argument("--seed", type=int, default=SEED)
     args = parser.parse_args()
@@ -363,7 +364,7 @@ def _main():
             problems.append("%s: %s" % (prop["id"], problem))
 
     if problems:
-        print("FAILED: generated base is invalid:")
+        print("FALHA: a base gerada é inválida:")
         for problem in problems[:20]:
             print("  " + problem)
         return 1

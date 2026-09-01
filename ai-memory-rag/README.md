@@ -41,12 +41,67 @@ python ai-memory-rag/scripts/demo_memory.py
 # 4. ver a carteira do corretor e a escada de follow-up
 python ai-memory-rag/scripts/demo_broker.py
 
-# 5. rodar os testes
+# 5. conversar com o agente no terminal
+python ai-memory-rag/scripts/run_chat.py meu-lead
+
+# 6. rodar os testes
 python -m unittest discover -s ai-memory-rag/tests -v
 ```
 
-Para usar embeddings semânticos de verdade (opcional, precisa de
-`GEMINI_API_KEY` no `.env` e de `pip install google-genai`):
+## O chat interativo
+
+`run_chat.py` é o mais perto de "rodar o projeto" que existe hoje, já que o
+backend e o frontend estão vazios. Ele faz o papel dos dois: recebe a mensagem
+digitada, chama a Parte 2, chama o agente da Parte 1, devolve a resposta.
+
+### Sem Gemini (padrão, não precisa de nada)
+
+```bash
+python ai-memory-rag/scripts/run_chat.py meu-lead
+```
+
+O cabeçalho avisa `agente: SIMULADO`. O agente falso pergunta o próximo campo
+que a **memória** ainda não tem, o que já demonstra a memória guiando o
+diálogo. Vale conversar assim:
+
+```
+Oi, meu nome é Marcos
+quero comprar em Copacabana
+3 quartos, até 1.5 milhão
+é urgente, meu zap é (21) 98765-4321
+```
+
+Depois, `/perfil`, `/prompt`, `/resumo`. A conversa é salva em disco: rodar de
+novo com o mesmo `lead_id` retoma de onde parou, e é assim que se demonstra
+memória entre sessões.
+
+### Com Gemini
+
+```bash
+pip install google-genai python-dotenv
+```
+
+Crie um `.env` **na raiz do repositório** com `GEMINI_API_KEY=AIza...`, e rode
+igual. O cabeçalho passa a mostrar `agente: Pessoa 1 + Gemini`.
+
+O `.env` é procurado na raiz do repositório, não no diretório de onde você
+chamou o script, então funciona de qualquer lugar.
+
+Para comparar os dois lado a lado tendo chave, `--simulado` força o modo sem IA.
+
+### Se algo não funcionar
+
+| Sintoma | Causa |
+|---|---|
+| `[agente real indisponível: No module named 'google']` | falta `pip install google-genai` |
+| `[agente real indisponível: No module named 'dotenv']` | falta `pip install python-dotenv` |
+| `[agente real indisponível: GEMINI_API_KEY não encontrada]` | `.env` ausente ou fora da raiz do repo |
+| Agente responde "Desculpe, tive um problema técnico" | chave inválida ou model id inexistente; ver o achado sobre `gemini-3.6-flash` |
+
+Em todos os casos o script continua rodando no modo simulado, então a sua parte
+segue testável.
+
+### Embeddings semânticos de verdade
 
 ```bash
 python ai-memory-rag/scripts/demo_rag.py --embedder gemini

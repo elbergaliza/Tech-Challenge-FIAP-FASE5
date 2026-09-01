@@ -1,22 +1,23 @@
 """
-LLM access, with graceful degradation.
+Acesso ao LLM, com degradação graciosa.
 
-Two modules depend on this: the summarizer and the follow-up generator. Both
-follow the same rule: **never fail for lack of an API key**. With no
-`GEMINI_API_KEY`, no network or an API outage, callers fall back to a
-deterministic heuristic path.
+Dois módulos dependem disto: o summarizer e o gerador de follow-up. Ambos
+seguem a mesma regra: **nunca falhar por falta de chave**. Sem
+`GEMINI_API_KEY`, sem rede ou com a API fora do ar, quem chama cai num caminho
+heurístico determinístico.
 
-That is not fussiness. The summary shows up on the broker dashboard: if the
-Gemini call fails during the presentation, a poorer rule-built summary beats an
-error screen. It also lets the tests run offline without burning quota.
+Isso não é preciosismo. O resumo aparece no dashboard do corretor: se a chamada
+ao Gemini falhar durante a apresentação, um resumo mais pobre montado por regra
+é melhor do que uma tela de erro. E permite que os testes rodem offline, sem
+gastar cota.
 
-Every result records where it came from (`source`), so the interface never
-presents rule-written text as if it were AI-written.
+Todo resultado registra de onde veio (`source`), para que a interface nunca
+apresente texto de regra como se fosse texto de IA.
 
-On the model id: `ai-core/src/agent.py` uses `gemini-3.6-flash`. I could not
-confirm that id exists. Here the default is configurable through `GEMINI_MODEL`,
-and the recommendation to the team is to pin ONE verified id in that variable
-and have both modules read it.
+Sobre o id do modelo: o `ai-core/src/agent.py` usa `gemini-3.6-flash`. Não
+consegui confirmar que esse id existe. Aqui o padrão é configurável por
+`GEMINI_MODEL`, e a recomendação para o grupo é fixar UM id verificado nessa
+variável e os dois módulos passarem a lê-la.
 """
 
 import json
@@ -29,12 +30,12 @@ _JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 
 
 class UnavailableClient:
-    """No LLM configured. Callers use the heuristic path."""
+    """Nenhum LLM configurado. Quem chama usa o caminho heurístico."""
 
     name = "unavailable"
     available = False
 
-    def __init__(self, reason="LLM not configured"):
+    def __init__(self, reason="LLM não configurado"):
         self.reason = reason
 
     def generate(self, prompt, temperature=0.4):
@@ -51,9 +52,9 @@ class GeminiClient:
 
         api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not api_key:
-            raise RuntimeError("GEMINI_API_KEY not found")
+            raise RuntimeError("GEMINI_API_KEY não encontrada")
 
-        from google import genai  # lazy import: offline needs no package
+        from google import genai  # import lazy: offline não precisa do pacote
 
         self._client = genai.Client(api_key=api_key)
 
@@ -75,7 +76,7 @@ class GeminiClient:
 
 
 class StubClient:
-    """Returns predefined replies. For tests and demos."""
+    """Devolve respostas pré-definidas. Para testes e demonstração."""
 
     name = "stub"
     available = True
@@ -87,15 +88,15 @@ class StubClient:
     def generate(self, prompt, temperature=0.4):
         self.calls.append(prompt)
         if not self.replies:
-            raise RuntimeError("StubClient ran out of replies")
+            raise RuntimeError("StubClient ficou sem respostas")
 
         return self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
 
 
 def get_client(prefer=None, api_key=None, model=None):
-    """Return the best available client, without raising."""
+    """Devolve o melhor cliente disponível, sem levantar exceção."""
     if prefer == "unavailable":
-        return UnavailableClient("forced by caller")
+        return UnavailableClient("forçado pelo chamador")
 
     try:
         return GeminiClient(api_key=api_key, model=model)
@@ -104,12 +105,12 @@ def get_client(prefer=None, api_key=None, model=None):
 
 
 def extract_json(text):
-    """Extract the JSON object from a model reply.
+    """Extrai o objeto JSON da resposta do modelo.
 
-    Models routinely wrap JSON in markdown fences, or preface it with "Here is
-    the summary:". Failing over that would be waste, so extraction is tolerant:
-    find the first braced block and try to parse it. Returns None when there is
-    no valid JSON, and the caller decides the fallback.
+    Modelos costumam embrulhar JSON em cerca de markdown, ou prefaciar com
+    "Aqui está o resumo:". Falhar por causa disso seria desperdício, então a
+    extração é tolerante: acha o primeiro bloco entre chaves e tenta ler.
+    Devolve None quando não há JSON válido, e quem chama decide o fallback.
     """
     if not text:
         return None

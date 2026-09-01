@@ -1,19 +1,19 @@
 """
-Indexer for the property base.
+Indexador da base de imóveis.
 
-Turns `shared/data/imoveis.json` into a searchable index: for each property it
-builds a weighted search text and computes its embedding.
+Transforma `shared/data/imoveis.json` num índice consultável: para cada imóvel,
+monta um texto de busca ponderado e calcula seu embedding.
 
-Conceptual equivalent in Azure Cognitive Search (lesson 04):
+Equivalente conceitual no Azure Cognitive Search (Aula 04):
 
     create_index()       -> schema.AZURE_FIELD_MAP
     upload_documents()   -> build_index()
-    scheduled indexer    -> reindex() driven by a job
+    indexador agendado   -> reindex() chamado por um job
 
-Command line:
+Linha de comando:
 
-    python -m src.rag.indexer                    # use whatever is available
-    python -m src.rag.indexer --embedder hashing # force the offline path
+    python -m src.rag.indexer                    # usa o que estiver disponível
+    python -m src.rag.indexer --embedder hashing # força o caminho offline
 """
 
 import json
@@ -22,7 +22,7 @@ import os
 from . import schema
 from .embeddings import cosine, get_embedder, load_env
 
-# Paths relative to the repository root.
+# Caminhos relativos à raiz do repositório.
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 PROPERTIES_PATH = os.path.join(ROOT, "shared", "data", "imoveis.json")
 INDEX_PATH = os.path.join(ROOT, "ai-memory-rag", "data", "index", "imoveis_index.json")
@@ -31,11 +31,11 @@ INDEX_VERSION = 1
 
 
 def build_search_text(prop):
-    """Build the text that represents a property in vector space.
+    """Monta o texto que representa o imóvel no espaço vetorial.
 
-    More discriminating fields are repeated, which is the local analogue of
-    Azure's per-field boosting (`search_fields=["title^3", "description"]`).
-    Repeating a token increases its mass in the vector.
+    Campos mais discriminantes entram repetidos, o que é o análogo local do
+    boosting por campo do Azure (`search_fields=["title^3", "description"]`).
+    Repetir o token aumenta sua massa no vetor.
     """
     parts = []
 
@@ -49,12 +49,12 @@ def build_search_text(prop):
 
         parts.extend([str(value)] * weight)
 
-    # The zone is always added so that "zona sul" retrieves properties in
-    # Copacabana even when the listing never writes "zona sul".
+    # A zona entra sempre, para que "zona sul" recupere imóveis de Copacabana
+    # mesmo quando o anúncio nunca escreve "zona sul".
     if prop.get("zone"):
         parts.append(str(prop["zone"]))
 
-    # Bedrooms in textual form: a lead writes "3 quartos", not "quartos: 3".
+    # Quartos em forma textual: o lead escreve "3 quartos", não "quartos: 3".
     bedrooms = prop.get("bedrooms")
     if bedrooms:
         parts.append("%d quartos" % bedrooms)
@@ -68,11 +68,11 @@ def build_search_text(prop):
 
 
 class Index:
-    """In-memory index. Small on purpose: the base holds dozens of items."""
+    """Índice em memória. Pequeno de propósito: a base tem dezenas de itens."""
 
     def __init__(self, embedder_name, dim, documents, vectors, version=INDEX_VERSION):
         if len(documents) != len(vectors):
-            raise ValueError("documents and vectors have different lengths")
+            raise ValueError("documents e vectors com tamanhos diferentes")
 
         self.embedder_name = embedder_name
         self.dim = dim
@@ -88,11 +88,11 @@ class Index:
         return self._by_id.get(property_id)
 
     def similarities(self, query_vector, allowed_ids=None):
-        """Return [(property, similarity)] for the allowed ids.
+        """Devolve [(imóvel, similaridade)] para os ids permitidos.
 
-        `allowed_ids` is the output of the structured filters. Restricting
-        before computing cosine avoids wasted work and, more importantly,
-        guarantees a hard filter is never overridden by textual similarity.
+        `allowed_ids` é o resultado dos filtros estruturados. Restringir antes
+        de calcular o cosseno evita trabalho e, mais importante, garante que um
+        filtro rígido nunca seja vencido por semelhança textual.
         """
         results = []
 
@@ -105,9 +105,9 @@ class Index:
         return results
 
     def facets(self, field):
-        """Count by field value, like Azure's facets.
+        """Contagem por valor de um campo, como as facetas do Azure.
 
-        Feeds the broker dashboard directly (Part 4).
+        Alimenta direto o dashboard do corretor (Parte 4).
         """
         counts = {}
 
@@ -128,7 +128,7 @@ class Index:
             "dim": self.dim,
             "total": len(self.documents),
             "documents": self.documents,
-            # Six decimals are plenty for cosine and cut the file by ~40%.
+            # 6 casas decimais bastam para cosseno e cortam o arquivo em ~40%.
             "vectors": [[round(v, 6) for v in vector] for vector in self.vectors],
         }
 
@@ -148,8 +148,8 @@ def load_properties(path=None):
 
     if not os.path.isfile(path):
         raise FileNotFoundError(
-            "Property base not found at %s. "
-            "Run: python ai-memory-rag/scripts/generate_properties.py" % path
+            "Base de imóveis não encontrada em %s. "
+            "Rode: python ai-memory-rag/scripts/generate_properties.py" % path
         )
 
     with open(path, "r", encoding="utf-8") as handle:
@@ -164,7 +164,7 @@ def load_properties(path=None):
 
     if problems:
         raise ValueError(
-            "Invalid property base (%d problems):\n  %s"
+            "Base de imóveis inválida (%d problemas):\n  %s"
             % (len(problems), "\n  ".join(problems[:20]))
         )
 
@@ -198,7 +198,7 @@ def load_index(path=None):
 
     if not os.path.isfile(path):
         raise FileNotFoundError(
-            "Index not found at %s. Run: python -m src.rag.indexer" % path
+            "Índice não encontrado em %s. Rode: python -m src.rag.indexer" % path
         )
 
     with open(path, "r", encoding="utf-8") as handle:
@@ -206,7 +206,7 @@ def load_index(path=None):
 
 
 def reindex(embedder=None, properties_path=None, index_path=None):
-    """Rebuild the index from scratch. This is the hook for a scheduled job."""
+    """Reconstrói o índice do zero. É o gancho para um job agendado."""
     embedder = embedder or get_embedder()
     properties = load_properties(properties_path)
     index = build_index(properties, embedder)
@@ -218,12 +218,12 @@ def reindex(embedder=None, properties_path=None, index_path=None):
 def _main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Index the property base.")
+    parser = argparse.ArgumentParser(description="Indexa a base de imóveis.")
     parser.add_argument(
         "--embedder",
         choices=["gemini", "hashing"],
         default=None,
-        help="force an embedder; by default tries Gemini and falls back to hashing",
+        help="força um embedder; por padrão tenta Gemini e cai para hashing",
     )
     args = parser.parse_args()
 
@@ -232,11 +232,11 @@ def _main():
 
     index, destination = reindex(embedder=embedder)
 
-    print("Index built: %d properties, embedder=%s, dim=%d"
+    print("Índice criado: %d imóveis, embedder=%s, dim=%d"
           % (len(index), index.embedder_name, index.dim))
-    print("Saved to: %s" % destination)
-    print("Facets by zone: %s" % index.facets("zone"))
-    print("Facets by deal type: %s" % index.facets("deal_type"))
+    print("Salvo em: %s" % destination)
+    print("Facetas por zona: %s" % index.facets("zone"))
+    print("Facetas por tipo de negócio: %s" % index.facets("deal_type"))
 
 
 if __name__ == "__main__":

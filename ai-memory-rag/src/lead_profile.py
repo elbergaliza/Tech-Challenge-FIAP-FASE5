@@ -1,41 +1,41 @@
 """
-The lead profile, and the boundary with Person 1's agent.
+O perfil do lead, e a fronteira com o agente da Pessoa 1.
 
-This module is the single place where Portuguese data keys are allowed to
-exist, and it exists precisely so they do not leak anywhere else.
+Este módulo é o único lugar onde chaves de dado em português podem existir, e
+ele existe justamente para que elas não vazem para o resto do código.
 
-`ai-core/src/agent.py` produces a dict with Portuguese keys and Portuguese enum
-values:
+O `ai-core/src/agent.py` produz um dicionário com chaves e enums em português:
 
     {"nome": "João", "intencao": "COMPRA", "preco_faixa": "500k-800k",
      "regiao": "Copacabana", "quartos": "3", "urgencia": "alta",
      "email": "undefined", "telefone": "undefined"}
 
-That shape is Person 1's contract and we do not get to change it. Instead of
-letting it spread through the whole module, `from_agent()` translates it once,
-at the edge, into the English profile the rest of the code works with:
+Esse formato é contrato da Pessoa 1 e não cabe a nós mudar. Em vez de deixá-lo
+se espalhar pelo módulo inteiro, `from_agent()` traduz uma vez, na borda, para
+o perfil que o resto do código usa:
 
     {"name": "João", "intent": "BUY", "price_range": "500k-800k",
      "region": "Copacabana", "bedrooms": "3", "urgency": "high"}
 
-Unknown values ("undefined", empty, None) are dropped rather than carried, so
-downstream code never has to remember that "undefined" is a magic string.
+Valores desconhecidos ("undefined", vazio, None) são descartados em vez de
+carregados, para que o código lá na frente nunca precise lembrar que
+"undefined" é uma string mágica.
 
-The reverse direction, `*_LABELS`, exists because the product speaks
-Portuguese: the code branches on `intent == "BUY"`, the agent says "compra".
+O caminho inverso, os mapas `*_LABELS`, existe porque o produto fala português:
+o código decide com `intent == "BUY"`, o agente escreve "compra".
 """
 
-# What the rest of the module works with.
+# O que o resto do módulo usa.
 PROFILE_FIELDS = (
     "name", "intent", "price_range", "region", "bedrooms",
     "urgency", "email", "phone",
 )
 
-# Fields carrying personal data directly.
+# Campos que carregam dado pessoal direto.
 PII_FIELDS = ("name", "email", "phone")
 
-# Person 1's key -> ours. Also accepts our own keys, so an already-translated
-# profile can be fed back in without a second conversion.
+# Chave da Pessoa 1 -> a nossa. Aceita também as nossas próprias chaves, para
+# que um perfil já traduzido possa ser reprocessado sem uma segunda conversão.
 AGENT_FIELD_MAP = {
     "nome": "name",
     "intencao": "intent",
@@ -60,7 +60,7 @@ AGENT_URGENCIES = {
     "baixa": "low",
 }
 
-# Portuguese labels for everything a lead or a broker reads.
+# Rótulos em português para tudo que um lead ou um corretor lê.
 INTENT_LABELS = {"BUY": "compra", "RENT": "aluguel", "INVEST": "investimento"}
 
 URGENCY_LABELS = {"high": "alta", "medium": "média", "low": "baixa"}
@@ -76,22 +76,52 @@ FIELD_LABELS = {
     "phone": "Telefone",
 }
 
-# Literally what Person 1 emits for a field it could not extract.
+# Ordem em que um SDR persegue os campos, e é a ordem do fluxo do PDF do
+# desafio: primeiro entender a intenção, depois onde, depois o quê, depois
+# quanto, e o contato por último.
+#
+# `name` e `email` ficam de fora de propósito. Nome vem de graça quando o lead
+# se apresenta, e e-mail é alternativa ao telefone; nenhum dos dois é
+# perseguido, então nenhum dos dois pode ser contado como esquivado.
+COLLECTION_ORDER = ("intent", "region", "bedrooms", "price_range", "urgency", "phone")
+
+
+def next_to_collect(profile):
+    """O campo que o agente está perseguindo agora, ou None se já tem tudo.
+
+    Um SDR pergunta uma coisa por vez. Saber QUAL é a pergunta em aberto é o
+    que permite contar esquiva de forma justa: campo que ainda nem foi
+    perguntado não pode contar como ignorado.
+    """
+    profile = profile or {}
+    for field in COLLECTION_ORDER:
+        if not is_known(profile.get(field)):
+            return field
+
+    return None
+
+
+# Quantas mensagens do lead um campo pode ficar sem resposta antes de ser
+# considerado esquivado. Um SDR humano tenta duas vezes e segue em frente; na
+# terceira, insistir vira interrogatório.
+DODGE_THRESHOLD = 3
+
+# Literalmente o que a Pessoa 1 emite para um campo que não conseguiu extrair.
 AGENT_UNKNOWN = "undefined"
 
 UNKNOWN_VALUES = (AGENT_UNKNOWN, "", None)
 
 
 def is_known(value):
-    """True when a profile value carries actual information."""
+    """Verdadeiro quando um valor de perfil carrega informação de verdade."""
     return value not in UNKNOWN_VALUES and str(value).strip() != ""
 
 
 def from_agent(collected_data):
-    """Translate Person 1's `dados_coletados` into our English profile.
+    """Traduz o `dados_coletados` da Pessoa 1 para o nosso perfil.
 
-    Tolerates keys that are already translated, so calling it twice is safe.
-    Unknown values are dropped instead of being carried as "undefined".
+    Tolera chaves já traduzidas, então chamar duas vezes é seguro. Valores
+    desconhecidos são descartados em vez de carregados como "undefined".
 
     >>> from_agent({"intencao": "COMPRA", "regiao": "undefined"})
     {'intent': 'BUY'}
@@ -109,7 +139,7 @@ def from_agent(collected_data):
 
         if key == "intent":
             upper = str(value).upper()
-            # Accept both Person 1's Portuguese enum and our own.
+            # Aceita tanto o enum em português da Pessoa 1 quanto o nosso.
             value = AGENT_INTENTS.get(upper, upper)
         elif key == "urgency":
             lower = str(value).lower()
@@ -121,11 +151,11 @@ def from_agent(collected_data):
 
 
 def to_agent(profile):
-    """Translate back into Person 1's shape.
+    """Traduz de volta para o formato da Pessoa 1.
 
-    Only needed if some other part of the project wants to hand our profile to
-    code that speaks the agent's dialect. Fields we do not know are filled with
-    the agent's own "undefined" marker, because that is what it expects.
+    Só é necessário se alguma outra parte do projeto quiser entregar o nosso
+    perfil a um código que fala o dialeto do agente. Campos que não conhecemos
+    são preenchidos com o marcador "undefined" dela, porque é o que ela espera.
     """
     reverse_fields = {ours: theirs for theirs, ours in AGENT_FIELD_MAP.items()}
     reverse_intents = {ours: theirs for theirs, ours in AGENT_INTENTS.items()}
@@ -150,7 +180,7 @@ def to_agent(profile):
 
 
 def label(field, value):
-    """Portuguese rendering of a profile value, for text the lead reads."""
+    """Renderização em português de um valor de perfil, para o lead ler."""
     if field == "intent":
         return INTENT_LABELS.get(value, value)
     if field == "urgency":
