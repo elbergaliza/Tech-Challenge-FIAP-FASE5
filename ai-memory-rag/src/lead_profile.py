@@ -106,6 +106,41 @@ def next_to_collect(profile):
 # terceira, insistir vira interrogatório.
 DODGE_THRESHOLD = 3
 
+# Pistas de urgência BAIXA de verdade.
+#
+# Existem porque a `extrair_urgencia` da Pessoa 1 não tem ramo "undefined": ela
+# devolve "alta" se achar palavra de pressa, "media" se achar palavra de prazo,
+# e "baixa" em TODO o resto. Um "oi, meu nome é Marcos" vira urgência baixa.
+#
+# É a única das nove funções de extração dela sem esse ramo; as outras oito
+# devolvem "undefined" quando não sabem. Como a lista de urgência baixa dela é
+# vazia, "baixa" nunca é evidência: é sempre o default.
+#
+# O estrago é do nosso lado, não do dela: o perfil é monotônico, então a
+# urgência trava no primeiro turno, o `next_to_collect` para de perseguir o
+# prazo, e o score do lead nasce deflacionado.
+#
+# A defesa fica aqui, na camada anticorrupção, e não no código dela, que é de
+# outra pessoa. Estas pistas são nossas: com elas a urgência baixa passa a ser
+# reconhecida quando o lead realmente a expressa, o que hoje não acontece.
+LOW_URGENCY_CUES = (
+    "sem pressa", "nao tenho pressa", "não tenho pressa", "sem urgencia",
+    "sem urgência", "sem correria", "com calma", "tranquilo", "no meu tempo",
+    "ano que vem", "so olhando", "só olhando", "so pesquisando",
+    "só pesquisando", "apenas pesquisando", "dando uma olhada",
+    "sem compromisso", "a longo prazo", "nao tem pressa", "não tem pressa",
+)
+
+
+def mentions_low_urgency(text):
+    """O lead disse alguma coisa que sustente urgência baixa?"""
+    if not text:
+        return False
+
+    lowered = str(text).lower()
+    return any(cue in lowered for cue in LOW_URGENCY_CUES)
+
+
 # Literalmente o que a Pessoa 1 emite para um campo que não conseguiu extrair.
 AGENT_UNKNOWN = "undefined"
 
@@ -117,14 +152,23 @@ def is_known(value):
     return value not in UNKNOWN_VALUES and str(value).strip() != ""
 
 
-def from_agent(collected_data):
+def from_agent(collected_data, message=None):
     """Traduz o `dados_coletados` da Pessoa 1 para o nosso perfil.
 
     Tolera chaves já traduzidas, então chamar duas vezes é seguro. Valores
     desconhecidos são descartados em vez de carregados como "undefined".
 
+    Com `message`, a urgência baixa só é aceita se a mensagem realmente a
+    sustentar; ver `LOW_URGENCY_CUES`. Sem `message` nada é descartado, porque
+    aí não há como julgar e um chamador programático pode estar remontando um
+    perfil já validado.
+
     >>> from_agent({"intencao": "COMPRA", "regiao": "undefined"})
     {'intent': 'BUY'}
+    >>> from_agent({"urgencia": "baixa"}, message="oi, tudo bem?")
+    {}
+    >>> from_agent({"urgencia": "baixa"}, message="sem pressa, é para 2027")
+    {'urgency': 'low'}
     """
     profile = {}
 
@@ -144,6 +188,12 @@ def from_agent(collected_data):
         elif key == "urgency":
             lower = str(value).lower()
             value = AGENT_URGENCIES.get(lower, lower)
+            # "baixa" sem nada na mensagem que a sustente é o default da
+            # Pessoa 1, não informação. Deixar passar trava o campo para
+            # sempre, porque o perfil é monotônico.
+            if value == "low" and message is not None:
+                if not mentions_low_urgency(message):
+                    continue
 
         profile[key] = value
 

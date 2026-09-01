@@ -328,6 +328,93 @@ class TestMemoryBasics(unittest.TestCase):
         self.assertEqual(self.memory.leads(), ["lead-a", "lead-b"])
 
 
+class TestDefaultUrgencyIsNotEvidence(unittest.TestCase):
+    """A `extrair_urgencia` da Pessoa 1 devolve "baixa" para qualquer texto.
+
+    Ela nao tem ramo "undefined" nem lista de palavras de urgencia baixa, entao
+    um "oi, meu nome e Marcos" produz urgencia baixa. Deixar isso entrar trava
+    o campo para sempre, porque o perfil e monotonico.
+    """
+
+    def test_greeting_does_not_set_urgency(self):
+        perfil = lead_profile.from_agent(
+            {"nome": "Marcos", "urgencia": "baixa"},
+            message="Oi, meu nome e Marcos",
+        )
+
+        self.assertEqual(perfil, {"name": "Marcos"})
+
+    def test_real_low_urgency_is_kept(self):
+        perfil = lead_profile.from_agent(
+            {"urgencia": "baixa"},
+            message="sem pressa, quero comprar so ano que vem",
+        )
+
+        self.assertEqual(perfil["urgency"], "low")
+
+    def test_high_urgency_is_never_filtered(self):
+        perfil = lead_profile.from_agent(
+            {"urgencia": "alta"}, message="preciso mudar essa semana",
+        )
+
+        self.assertEqual(perfil["urgency"], "high")
+
+    def test_medium_urgency_is_never_filtered(self):
+        perfil = lead_profile.from_agent(
+            {"urgencia": "media"}, message="qualquer coisa",
+        )
+
+        self.assertEqual(perfil["urgency"], "medium")
+
+    def test_without_a_message_nothing_is_discarded(self):
+        # Chamador programatico remontando um perfil ja validado nao pode
+        # perder dado por causa de uma defesa que nao tem como julgar.
+        perfil = lead_profile.from_agent({"urgencia": "baixa"})
+
+        self.assertEqual(perfil["urgency"], "low")
+
+    def test_cues_are_accent_and_case_tolerant(self):
+        for texto in ("SEM PRESSA", "Nao tenho pressa", "Não tenho pressa",
+                      "so olhando por enquanto", "Só Olhando"):
+            perfil = lead_profile.from_agent({"urgencia": "baixa"}, message=texto)
+            self.assertEqual(perfil.get("urgency"), "low", texto)
+
+
+class TestUrgencyDoesNotLockTheProfile(unittest.TestCase):
+    """O efeito da defesa onde ele importa: o campo continua sendo perseguido."""
+
+    def setUp(self):
+        self.memory = ConversationMemory(InMemoryStore())
+
+    def test_greeting_leaves_urgency_open_for_collection(self):
+        dados = {"nome": "Marcos", "urgencia": "baixa", "intencao": "undefined"}
+        self.memory.update_profile("lead-1", dados, message="Oi, meu nome e Marcos")
+
+        perfil = self.memory.profile("lead-1")
+        self.assertNotIn("urgency", perfil)
+
+    def test_urgency_can_still_be_learned_later(self):
+        self.memory.update_profile(
+            "lead-2", {"urgencia": "baixa"}, message="Oi!",
+        )
+        self.memory.update_profile(
+            "lead-2", {"urgencia": "alta"}, message="preciso urgente",
+        )
+
+        self.assertEqual(self.memory.profile("lead-2")["urgency"], "high")
+
+    def test_the_agent_keeps_pursuing_urgency_after_a_greeting(self):
+        # Com a urgencia travada em "low" no primeiro turno, `next_to_collect`
+        # pulava o campo e o agente nunca perguntava sobre prazo.
+        dados = {
+            "intencao": "COMPRA", "regiao": "Copacabana", "quartos": "2",
+            "preco_faixa": "900k", "urgencia": "baixa",
+        }
+        self.memory.update_profile("lead-3", dados, message="quero comprar em Copacabana")
+
+        self.assertEqual(lead_profile.next_to_collect(self.memory.profile("lead-3")), "urgency")
+
+
 class TestMonotonicProfile(unittest.TestCase):
     """O motivo principal de a memória existir."""
 

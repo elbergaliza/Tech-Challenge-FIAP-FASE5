@@ -328,7 +328,7 @@ class ConversationMemory:
         name = state.get("profile", {}).get("name")
         return [name] if is_known(name) else []
 
-    def update_profile(self, lead_id, collected_data):
+    def update_profile(self, lead_id, collected_data, message=None):
         """Funde o `dados_coletados` da Pessoa 1 no perfil acumulado.
 
         Devolve a lista de alterações, cada uma com `kind` 'new' ou
@@ -338,6 +338,10 @@ class ConversationMemory:
         Valores desconhecidos NUNCA sobrescrevem valores conhecidos. É a razão
         de a memória existir: a extração da Pessoa 1 é sem estado e pode
         regredir entre chamadas.
+
+        `message` é a mensagem original do lead. Serve para descartar valores
+        que a mensagem não sustenta, hoje só a urgência baixa; ver
+        `lead_profile.LOW_URGENCY_CUES`.
         """
         state = self.state(lead_id)
         now = _iso(self.clock())
@@ -346,7 +350,7 @@ class ConversationMemory:
         # As chaves em português da Pessoa 1 são traduzidas aqui, uma vez, na
         # borda. O `from_agent` também deixa passar as nossas próprias chaves,
         # então um perfil já traduzido pode ser fundido de novo com segurança.
-        for field, value in lead_profile.from_agent(collected_data).items():
+        for field, value in lead_profile.from_agent(collected_data, message).items():
             previous = state["profile"].get(field)
 
             if not is_known(previous):

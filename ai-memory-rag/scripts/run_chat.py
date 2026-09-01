@@ -284,8 +284,14 @@ def main():
     print("memória:   %s" % os.path.normpath(DATA_DIR))
 
     if memory.exists(lead_id):
-        print("\nConversa anterior encontrada: %d mensagens. Retomando."
-              % memory.message_count(lead_id))
+        anteriores = memory.message_count(lead_id)
+        if anteriores:
+            print("\nConversa anterior encontrada: %d mensagens. Retomando."
+                  % anteriores)
+        else:
+            # Acontece quando uma sessao anterior morreu logo depois de
+            # registrar o consentimento, antes da primeira mensagem.
+            print("\nLead já cadastrado, sem mensagens anteriores.")
     else:
         memory.record_consent(lead_id, True, "atendimento imobiliário e follow-up")
         print("\nConsentimento registrado (LGPD).")
@@ -391,7 +397,9 @@ def main():
         # e-mail e telefone estão mascarados na outra versão.
         dados = extrair_dados(turno.message)
         dados.update(extract_pii(entrada))
-        alteracoes = memory.update_profile(lead_id, dados)
+        # A mensagem original vai junto para que a memória possa descartar a
+        # urgência baixa que a Pessoa 1 emite por default em qualquer texto.
+        alteracoes = memory.update_profile(lead_id, dados, message=entrada)
 
         # Contexto refeito depois da absorção, senão o prompt diria "ainda
         # falta descobrir quartos" na mesma mensagem em que o lead os informou.

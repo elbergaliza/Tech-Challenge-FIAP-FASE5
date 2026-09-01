@@ -513,9 +513,22 @@ da Pessoa 1:
    verificado nessa variável e o `agent.py` passar a lê-la também, para não
    existirem dois ids diferentes no projeto.
 5. **`extrair_urgencia` nunca devolve `"undefined"`**: sem palavra-chave, cai em
-   `"baixa"`. Como `avaliar_status_qualificacao` conta campos preenchidos, todo
-   lead começa com um campo a mais do que realmente tem. O score deste módulo
-   não usa aquela contagem, mas vale corrigir na origem.
+   `"baixa"`. É a única das nove funções de extração sem esse ramo; as outras
+   oito devolvem `"undefined"` quando não sabem. Como a lista de urgência baixa
+   dela é vazia, `"baixa"` nunca é evidência: é sempre o default. Um "oi, meu
+   nome é Marcos" já produz urgência baixa.
+
+   **Este módulo se defende, porque o estrago era daqui.** O perfil é
+   monotônico, então a urgência travava no primeiro turno; `next_to_collect`
+   parava de perseguir o prazo e o agente nunca mais perguntava sobre ele; e o
+   score do lead nascia deflacionado. `lead_profile.from_agent(dados, message)`
+   descarta a urgência baixa que a mensagem não sustenta, com as pistas em
+   `LOW_URGENCY_CUES`. Efeito colateral bom: urgência baixa **real** ("sem
+   pressa", "só ano que vem") passa a ser reconhecida, o que antes não
+   acontecia de jeito nenhum, já que era indistinguível do default.
+
+   Continua valendo corrigir na origem, com um ramo `"undefined"`. Aí a defesa
+   daqui vira redundância inofensiva.
 
 ## Decisões de prompt
 
