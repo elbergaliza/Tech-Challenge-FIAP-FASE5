@@ -32,6 +32,7 @@ comparar os dois lado a lado.
 """
 
 import io
+import logging
 import os
 import re
 import sys
@@ -200,6 +201,64 @@ def mostrar_perfil(memory, lead_id):
             print("  %-16s %s" % (FIELD_LABELS[campo] + ":", profile[campo]))
 
 
+def preparar_saida():
+    """Faz a tela contar a historia na ordem em que ela acontece.
+
+    O `[LOG] Processando...` do agente aparecia DEPOIS do aviso do SDK,
+    invertendo a ordem real: aquele print e a primeira linha da funcao dele, e
+    o aviso so e emitido durante a chamada ao Gemini, bem depois.
+
+    A causa e que stdout e stderr sao buffers separados. O aviso vai por
+    logging para o stderr, linha-bufferizado, e sai na hora; o print vai para o
+    stdout, que nem sempre esta. Forcar line buffering nos dois alinha a ordem.
+
+    O aviso de AFC em si e ruido: o SDK o emite em toda `generate_content`,
+    mesmo sem function calling nenhum, e o `ai-core` nao passa `tools`.
+    Filtramos so ESSA mensagem, e nao o logger inteiro, para que um aviso de
+    verdade do SDK continue aparecendo.
+    """
+    for fluxo in (sys.stdout, sys.stderr):
+        try:
+            fluxo.reconfigure(line_buffering=True)
+        except (AttributeError, ValueError):
+            # Python antigo, ou fluxo redirecionado que nao aceita: seguir sem.
+            pass
+
+    class SemRuidoDeAFC(logging.Filter):
+        def filter(self, registro):
+            return "automatic function calling" not in registro.getMessage()
+
+    logging.getLogger("google_genai.models").addFilter(SemRuidoDeAFC())
+
+
+# Indicador de "estou trabalhando". A chamada ao agente leva alguns segundos e
+# sem sinal nenhum a tela fica muda depois do Enter, o que parece travamento.
+INDICADOR = "         ..."
+
+
+def _tem_terminal():
+    """So ha indicador quando ha alguem olhando.
+
+    O apagamento usa \\r, que o terminal entende e um arquivo nao: com a
+    saida redirecionada, o indicador viraria lixo no meio do texto.
+    """
+    try:
+        return sys.stdout.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def mostrar_indicador():
+    if _tem_terminal():
+        print(INDICADOR, end="", flush=True)
+
+
+def limpar_indicador():
+    """Apaga o indicador para ele nao poluir o historico da conversa."""
+    if _tem_terminal():
+        print("\r" + " " * len(INDICADOR) + "\r", end="", flush=True)
+
+
 def chamar_com_retentativa(chamar_agente, *args, **kwargs):
     """Chama o agente da Pessoa 1, insistindo quando o Gemini esta lotado.
 
@@ -213,8 +272,10 @@ def chamar_com_retentativa(chamar_agente, *args, **kwargs):
     da resposta. E feio, e e o preco de nao mexer no codigo dela.
     """
     def aviso(tentativa, espera, _error):
+        limpar_indicador()
         print("[chat] Gemini sobrecarregado. Tentativa %d em %.0fs..."
               % (tentativa + 1, espera))
+        mostrar_indicador()
 
     def uma_vez():
         resultado = chamar_agente(*args, **kwargs)
@@ -287,6 +348,7 @@ def main():
     # encontraria a chave e o modo real falharia sem explicação. Carregar aqui
     # também resolve para o `agent.py` da Pessoa 1: ele lê `os.getenv` no
     # import, e a variável já vai estar no ambiente.
+    preparar_saida()
     load_env(os.path.join(REPO_ROOT, ".env"))
 
     argumentos = [a for a in sys.argv[1:] if not a.startswith("--")]
@@ -486,13 +548,17 @@ def main():
             if contexto else turno.message
         )
 
+        mostrar_indicador()
         try:
             resultado = chamar_com_retentativa(
                 chamar_agente, mensagem_para_o_agente, turno.history, lead_id,
             )
         except Exception as erro:
+            limpar_indicador()
             print("agente > [falhou: %s]" % erro)
             continue
+
+        limpar_indicador()
 
         # `dados_coletados` do agente é ignorado de propósito. A extração dela
         # é regex sobre o texto recebido, e o contexto e o bloco do RAG foram
