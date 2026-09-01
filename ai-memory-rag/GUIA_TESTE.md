@@ -282,16 +282,22 @@ módulo funciona igual nos dois casos; o que muda é a qualidade do texto.
 | `[agente real indisponível: No module named 'google']` | `pip install google-genai` |
 | `[agente real indisponível: No module named 'dotenv']` | `pip install python-dotenv` |
 | `[agente real indisponível: GEMINI_API_KEY não encontrada]` | `.env` ausente ou fora da raiz do repo |
-| Agente responde *"Desculpe, tive um problema técnico"* | chave inválida **ou** model id inexistente |
+| Agente responde *"Desculpe, tive um problema técnico"* | Gemini sobrecarregado (503); o chat já retenta 2x sozinho |
 | `ERROR: Could not find an activated virtualenv` | o `.venv` não está ativo nesta janela (passo 1) |
 | `[rag] Gemini indisponível (400 INVALID_ARGUMENT...)` | chave errada; o RAG segue no embedder offline |
 | `[rag] Cota por minuto quase no limite. Aguardando 58s...` | normal na primeira indexação; espere |
 | `[rag] Falha ao indexar com gemini-embedding-001` | cota do dia esgotada; o RAG cai para o índice offline e continua |
 
-O último é o mais provável. O `agent.py` usa `gemini-3.6-flash`, e não consegui
-confirmar que esse id existe. Dá para testar trocando o id direto no `agent.py`,
-ou definindo `GEMINI_MODEL` no `.env` — o meu módulo já lê essa variável, o dela
-ainda não.
+O `gemini-3.6-flash` do `agent.py` foi verificado contra a API e existe. O 503
+e sobrecarga do Gemini, nao do id: medido em horario de pico, ~1 em 3 chamadas
+falha igualmente em `gemini-3.6-flash`, `gemini-2.5-flash` e
+`gemini-flash-latest`. O chat retenta duas vezes sozinho, avisando na tela:
+
+```
+[chat] Gemini sobrecarregado. Tentativa 2 em 1s...
+```
+
+Se as tres falharem, a conversa segue e o turno e gravado; e so mandar de novo.
 
 **Em qualquer falha o script continua rodando no modo simulado.** A Parte 2
 nunca fica intestável por causa da chave.

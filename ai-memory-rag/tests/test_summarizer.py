@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
+import llm                                                               # noqa: E402
 from llm import StubClient, UnavailableClient, extract_json              # noqa: E402
 from memory.conversation_memory import ConversationMemory, InMemoryStore  # noqa: E402
 from summarizer import (                                                 # noqa: E402
@@ -65,6 +66,125 @@ def memory_with_conversation(clock=None, profile=None, messages=4):
 # ===========================================================================
 # Score
 # ===========================================================================
+
+
+class TestTransientDetection(unittest.TestCase):
+    """Distinguir sobrecarga momentanea de erro permanente.
+
+    Retentar um 503 resolve; retentar uma chave invalida so gasta tempo e cota.
+    """
+
+    def test_recognises_overload(self):
+        for texto in [
+            "503 UNAVAILABLE. This model is currently experiencing high demand",
+            "500 INTERNAL",
+            "429 RESOURCE_EXHAUSTED",
+            "The model is overloaded. Please try again later.",
+        ]:
+            self.assertTrue(llm.is_transient(RuntimeError(texto)), texto)
+
+    def test_does_not_recognise_permanent_errors(self):
+        for texto in [
+            "400 INVALID_ARGUMENT. API key not valid",
+            "404 NOT_FOUND. models/gemini-inexistente is not found",
+            "GEMINI_API_KEY nao encontrada",
+            "PermissionDenied: 403",
+        ]:
+            self.assertFalse(llm.is_transient(RuntimeError(texto)), texto)
+
+
+class TestRetryTransient(unittest.TestCase):
+
+    def test_succeeds_on_the_second_attempt(self):
+        tentativas = []
+        esperas = []
+
+        def instavel():
+            tentativas.append(1)
+            if len(tentativas) < 2:
+                raise RuntimeError("503 UNAVAILABLE")
+            return "ok"
+
+        resultado = llm.retry_transient(instavel, sleep=esperas.append)
+
+        self.assertEqual(resultado, "ok")
+        self.assertEqual(len(tentativas), 2)
+        self.assertEqual(len(esperas), 1)
+
+    def test_waits_grow_between_attempts(self):
+        esperas = []
+
+        def sempre_falha():
+            raise RuntimeError("503 UNAVAILABLE")
+
+        with self.assertRaises(RuntimeError):
+            llm.retry_transient(sempre_falha, sleep=esperas.append)
+
+        self.assertEqual(esperas, list(llm.RETRY_WAITS))
+        self.assertGreater(esperas[-1], esperas[0], "a espera tem que crescer")
+
+    def test_permanent_error_is_not_retried(self):
+        tentativas = []
+        esperas = []
+
+        def chave_invalida():
+            tentativas.append(1)
+            raise RuntimeError("400 INVALID_ARGUMENT. API key not valid")
+
+        with self.assertRaises(RuntimeError):
+            llm.retry_transient(chave_invalida, sleep=esperas.append)
+
+        self.assertEqual(len(tentativas), 1, "erro permanente nao se retenta")
+        self.assertEqual(esperas, [])
+
+    def test_gives_up_after_the_configured_attempts(self):
+        tentativas = []
+
+        def sempre_falha():
+            tentativas.append(1)
+            raise RuntimeError("503 UNAVAILABLE")
+
+        with self.assertRaises(RuntimeError):
+            llm.retry_transient(sempre_falha, sleep=lambda s: None)
+
+        self.assertEqual(len(tentativas), len(llm.RETRY_WAITS) + 1)
+
+    def test_a_custom_predicate_replaces_the_default(self):
+        # Quem detecta sobrecarga por outro sinal que nao o texto do erro,
+        # como o chat faz lendo a resposta ja tratada do agente da Pessoa 1.
+        tentativas = []
+
+        class Marcador(Exception):
+            pass
+
+        def falha():
+            tentativas.append(1)
+            if len(tentativas) < 2:
+                raise Marcador("texto sem nenhum codigo de erro")
+            return "ok"
+
+        resultado = llm.retry_transient(
+            falha, sleep=lambda s: None,
+            retryable=lambda e: isinstance(e, Marcador),
+        )
+
+        self.assertEqual(resultado, "ok")
+        self.assertEqual(len(tentativas), 2)
+
+    def test_notifies_each_retry(self):
+        avisos = []
+
+        def instavel():
+            if len(avisos) < 1:
+                raise RuntimeError("503 UNAVAILABLE")
+            return "ok"
+
+        llm.retry_transient(
+            instavel, sleep=lambda s: None,
+            on_retry=lambda tentativa, espera, erro: avisos.append((tentativa, espera)),
+        )
+
+        self.assertEqual(avisos, [(1, llm.RETRY_WAITS[0])])
 
 
 class TestScore(unittest.TestCase):

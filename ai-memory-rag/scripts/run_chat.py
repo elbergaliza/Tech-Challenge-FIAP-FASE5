@@ -49,7 +49,7 @@ except Exception:
 
 from followup import FollowUpGenerator, evaluate_followup                 # noqa: E402
 from lead_profile import FIELD_LABELS, PROFILE_FIELDS, is_known           # noqa: E402
-from llm import get_client                                               # noqa: E402
+from llm import get_client, retry_transient                                               # noqa: E402
 from memory.conversation_memory import (                                 # noqa: E402
     ConversationMemory, JsonFileStore, extract_pii,
 )
@@ -198,6 +198,58 @@ def mostrar_perfil(memory, lead_id):
     for campo in PROFILE_FIELDS:
         if is_known(profile.get(campo)):
             print("  %-16s %s" % (FIELD_LABELS[campo] + ":", profile[campo]))
+
+
+def chamar_com_retentativa(chamar_agente, *args, **kwargs):
+    """Chama o agente da Pessoa 1, insistindo quando o Gemini esta lotado.
+
+    O 503 "This model is currently experiencing high demand" e capacidade
+    momentanea do lado do Google, nao defeito do pedido: medido com a chave do
+    projeto, ~1 em 3 chamadas falhava em horario de pico, igualmente no
+    `gemini-3.6-flash` e no `gemini-2.5-flash`. Trocar de modelo nao resolve.
+
+    Ela ja trata a excecao internamente e devolve "Desculpe, tive um problema
+    tecnico", entao nao ha excecao para capturar aqui: a deteccao e pelo texto
+    da resposta. E feio, e e o preco de nao mexer no codigo dela.
+    """
+    def aviso(tentativa, espera, _error):
+        print("[chat] Gemini sobrecarregado. Tentativa %d em %.0fs..."
+              % (tentativa + 1, espera))
+
+    def uma_vez():
+        resultado = chamar_agente(*args, **kwargs)
+        resposta = (resultado or {}).get("resposta", "")
+        if FALHA_DO_AGENTE in resposta:
+            raise _AgenteSobrecarregado(resultado)
+        return resultado
+
+    try:
+        return retry_transient(
+            uma_vez, on_retry=aviso,
+            retryable=lambda e: isinstance(e, _AgenteSobrecarregado),
+        )
+    except _AgenteSobrecarregado as desistencia:
+        # Acabaram as tentativas. Devolve a ultima resposta dela, sem gastar
+        # mais uma chamada: o fluxo segue igual, o turno e gravado e a memoria
+        # nao se perde.
+        return desistencia.resultado
+
+
+# Texto exato que o agente da Pessoa 1 devolve quando a chamada ao Gemini
+# falha. Acoplamento a uma string dela, entao vale conferir se mudar.
+FALHA_DO_AGENTE = "tive um problema"
+
+
+class _AgenteSobrecarregado(Exception):
+    """Marcador interno para a retentativa reconhecer a sobrecarga.
+
+    Carrega o resultado inteiro do agente, e nao so o texto, para a desistencia
+    poder devolve-lo sem repetir a chamada.
+    """
+
+    def __init__(self, resultado):
+        super().__init__((resultado or {}).get("resposta", ""))
+        self.resultado = resultado
 
 
 def buscar_sem_quebrar(fn, *args, **kwargs):
@@ -435,7 +487,9 @@ def main():
         )
 
         try:
-            resultado = chamar_agente(mensagem_para_o_agente, turno.history, lead_id)
+            resultado = chamar_com_retentativa(
+                chamar_agente, mensagem_para_o_agente, turno.history, lead_id,
+            )
         except Exception as erro:
             print("agente > [falhou: %s]" % erro)
             continue

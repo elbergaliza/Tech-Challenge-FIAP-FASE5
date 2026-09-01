@@ -507,11 +507,23 @@ da Pessoa 1:
 3. **`extrair_regiao` só conhece uma lista fixa de localidades.** Ela e o
    `schema.BAIRROS` daqui precisam andar juntas, senão o lead informa uma região
    sem estoque. O catálogo canônico está em `src/rag/schema.py`.
-4. **Model id `gemini-3.6-flash`** em `agent.py` merece conferência contra os
-   modelos realmente disponíveis na chave. Este módulo lê o id da variável de
-   ambiente `GEMINI_MODEL` (`src/llm.py`); a sugestão é o grupo fixar UM id
-   verificado nessa variável e o `agent.py` passar a lê-la também, para não
-   existirem dois ids diferentes no projeto.
+4. **Model id `gemini-3.6-flash` em `agent.py`: verificado, é válido.** Eu tinha
+   registrado aqui a suspeita de que não existisse. Conferido contra a API com
+   a chave do projeto: ele está entre os 38 modelos com `generateContent`
+   disponíveis. A suspeita era infundada.
+
+   O que permanece é a duplicação: o id está fixo no código dela, enquanto este
+   módulo lê `GEMINI_MODEL` (`src/llm.py`). Vale o grupo fixar UM id nessa
+   variável e o `agent.py` passar a lê-la, para não existirem dois ids
+   diferentes no projeto.
+
+   **O `503 UNAVAILABLE` frequente não é culpa do id.** Medido em horário de
+   pico com a chave do projeto, 3 chamadas em cada modelo: `gemini-3.6-flash`
+   2/3, `gemini-2.5-flash` 2/3, `gemini-flash-latest` 2/3. É pressão de
+   capacidade do lado do Google, e trocar de modelo não resolve. A resposta
+   certa é retentar: `llm.retry_transient` faz isso para as chamadas deste
+   módulo, e o `run_chat.py` faz o mesmo ao redor da função dela. Erro
+   permanente, como chave inválida, não é retentado.
 5. **`extrair_urgencia` nunca devolve `"undefined"`**: sem palavra-chave, cai em
    `"baixa"`. É a única das nove funções de extração sem esse ramo; as outras
    oito devolvem `"undefined"` quando não sabem. Como a lista de urgência baixa

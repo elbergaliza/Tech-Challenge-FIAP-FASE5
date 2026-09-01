@@ -23,6 +23,7 @@ variável e os dois módulos passarem a lê-la.
 import json
 import os
 import re
+import time
 
 DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
@@ -42,6 +43,51 @@ class UnavailableClient:
         raise RuntimeError(self.reason)
 
 
+# Erros que valem uma segunda tentativa: sao de capacidade momentanea do lado
+# do Google, nao de nada errado no pedido. Medidos com a chave do projeto, ~1 em
+# 3 chamadas voltava 503 em horario de pico, no `gemini-3.6-flash` e igualmente
+# no `gemini-2.5-flash`, entao trocar de modelo nao resolve; esperar resolve.
+TRANSIENT_MARKERS = ("503", "UNAVAILABLE", "500", "INTERNAL", "429", "RESOURCE_EXHAUSTED",
+                     "overloaded", "high demand")
+
+# Curto de proposito: isto roda no meio de uma conversa, e um humano do outro
+# lado da tela desiste antes de dez segundos.
+RETRY_WAITS = (1.0, 3.0)
+
+
+def is_transient(error):
+    texto = str(error)
+    return any(marker in texto for marker in TRANSIENT_MARKERS)
+
+
+def retry_transient(fn, waits=RETRY_WAITS, sleep=time.sleep, on_retry=None,
+                    retryable=None):
+    """Roda `fn`, retentando so o que e transitorio.
+
+    Erro permanente (chave invalida, modelo inexistente, pedido malformado)
+    sobe na primeira tentativa: retentar so gastaria cota e tempo.
+
+    `retryable` troca o criterio. O padrao le o texto do erro, que serve para
+    excecoes vindas da API; quem detecta sobrecarga de outro jeito, como pelo
+    texto de uma resposta ja tratada, passa o seu proprio.
+    """
+    retryable = retryable or is_transient
+    ultimo = None
+
+    for tentativa in range(len(waits) + 1):
+        try:
+            return fn()
+        except Exception as error:
+            ultimo = error
+            if not retryable(error) or tentativa == len(waits):
+                raise
+            if on_retry:
+                on_retry(tentativa + 1, waits[tentativa], error)
+            sleep(waits[tentativa])
+
+    raise ultimo  # inalcancavel; deixa a intencao explicita
+
+
 class GeminiClient:
 
     available = True
@@ -57,21 +103,24 @@ class GeminiClient:
         from google import genai  # import lazy: offline não precisa do pacote
 
         self._client = genai.Client(api_key=api_key)
+        self._sleep = time.sleep
 
     def generate(self, prompt, temperature=0.4):
-        try:
-            from google.genai import types
+        def chamada():
+            try:
+                from google.genai import types
 
-            response = self._client.models.generate_content(
-                model=self.model,
-                contents=prompt,
-                config=types.GenerateContentConfig(temperature=temperature),
-            )
-        except ImportError:
-            response = self._client.models.generate_content(
-                model=self.model, contents=prompt
-            )
+                return self._client.models.generate_content(
+                    model=self.model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(temperature=temperature),
+                )
+            except ImportError:
+                return self._client.models.generate_content(
+                    model=self.model, contents=prompt
+                )
 
+        response = retry_transient(chamada, sleep=self._sleep)
         return (response.text or "").strip()
 
 
