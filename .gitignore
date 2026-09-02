@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Indice derivado: reconstruivel com "python -m src.rag.indexer"
+ai-memory-rag/data/index/
+
+# Conversas do run_chat.py: dado de teste, nao versionar
+ai-memory-rag/data/conversas/
