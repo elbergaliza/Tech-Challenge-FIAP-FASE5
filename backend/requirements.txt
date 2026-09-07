@@ -1,0 +1,10 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+sqlalchemy>=2.0.30
+pydantic>=2.7.0
+python-dotenv>=1.0.0
+apscheduler>=3.10.4
+
+# Usado pelo ai-core (Pessoa 1) e pelo ai-memory-rag (Pessoa 2), importados
+# como modulo por este backend. Sem chave, ambos caem em modo offline.
+google-genai>=2.21.1

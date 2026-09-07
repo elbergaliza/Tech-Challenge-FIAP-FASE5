@@ -222,3 +222,8 @@ ai-memory-rag/data/index/
 
 # Conversas do run_chat.py: dado de teste, nao versionar
 ai-memory-rag/data/conversas/
+
+# Banco do backend: recriado sozinho no start, e o seed repovoa os imoveis.
+# Versionar traria junto lead e conversa de teste, que e dado pessoal de mentira
+# hoje e dado pessoal de verdade no dia em que alguem testar com o proprio nome.
+backend/data/
