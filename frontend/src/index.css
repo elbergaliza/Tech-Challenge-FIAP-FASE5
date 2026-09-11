@@ -1,0 +1,275 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   Calçadão: a direção visual aprovada pelo grupo.
+   Verde-mar sobre azul profundo no escuro, areia no claro.
+
+   Nenhum componente escreve cor. Todos leem `var(--color-*)`, que aponta para
+   os tokens `--sdr-*` daqui. Trocar de direção visual (ou de tema) é trocar
+   este bloco, sem tocar em uma tela.
+
+   Os três estados de tema que o navegador tem, e todos os três desenhados:
+     1. escolha explícita  -> [data-theme="dark"] / [data-theme="light"]
+     2. preferência do SO  -> @media (prefers-color-scheme: dark)
+     3. nenhuma das duas   -> o :root puro abaixo
+   O padrão do app é escuro, e quem aplica isso é o script do `index.html`,
+   antes da primeira pintura. Aqui o :root puro é o claro, que é o fallback de
+   quem escolhe "sistema" num sistema claro.
+   ========================================================================== */
+
+:root {
+  /* `color-scheme` não é decoração: é ele que faz o seletor nativo, o
+     `datetime-local` e a barra de rolagem nascerem na cor certa. */
+  color-scheme: light;
+
+  --sdr-fundo: #f6f3ec;
+  --sdr-superficie: #ffffff;
+  --sdr-superficie-2: #f0ebe1;
+  --sdr-texto: #10262b;
+  --sdr-suave: #5d7377;
+  --sdr-linha: #e3ddd0;
+
+  /* Identidade. Fica fora do trio semântico de propósito: sucesso e marca
+     nunca disputam a mesma cor. */
+  --sdr-acento: #0b7f6c;
+  --sdr-acento-tinta: #ffffff;
+
+  /* Temperatura do lead. Uma escala só, usada igual no dashboard, na lista,
+     no chat e na agenda. */
+  --sdr-quente: #d9482a;
+  --sdr-morno: #a97710;
+  --sdr-frio: #1f6f9e;
+
+  /* Estado. Âmbar é sempre "precisa de atenção", e é por isso que ele e o
+     lead morno compartilham a família: são a mesma ideia. */
+  --sdr-sucesso: #0f7a52;
+  --sdr-erro: #c02b3f;
+
+  /* Sombra é token porque muda de natureza com o tema: no claro ela separa o
+     cartão do fundo areia, no escuro ela precisa ser bem mais funda para
+     existir sobre o azul profundo. */
+  --sdr-sombra: 0 10px 24px -16px rgb(16 38 43 / 0.35);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --sdr-fundo: #08191f;
+    --sdr-superficie: #0f2830;
+    --sdr-superficie-2: #14343e;
+    --sdr-texto: #e9f3f1;
+    --sdr-suave: #8fb0af;
+    --sdr-linha: #1d4450;
+
+    --sdr-acento: #17c3a2;
+    --sdr-acento-tinta: #05201b;
+
+    --sdr-quente: #ff6a45;
+    --sdr-morno: #f0b429;
+    --sdr-frio: #56b4e9;
+
+    --sdr-sucesso: #35c489;
+    --sdr-erro: #ff5470;
+
+    --sdr-sombra: 0 12px 28px -14px rgb(0 0 0 / 0.75);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --sdr-fundo: #08191f;
+  --sdr-superficie: #0f2830;
+  --sdr-superficie-2: #14343e;
+  --sdr-texto: #e9f3f1;
+  --sdr-suave: #8fb0af;
+  --sdr-linha: #1d4450;
+
+  --sdr-acento: #17c3a2;
+  --sdr-acento-tinta: #05201b;
+
+  --sdr-quente: #ff6a45;
+  --sdr-morno: #f0b429;
+  --sdr-frio: #56b4e9;
+
+  --sdr-sucesso: #35c489;
+  --sdr-erro: #ff5470;
+
+  --sdr-sombra: 0 12px 28px -14px rgb(0 0 0 / 0.75);
+}
+
+/* `inline` é obrigatório aqui: sem ele o Tailwind congela o valor do token no
+   build, e o app ficaria com uma cor só, imune à troca de tema. */
+@theme inline {
+  --font-sans: "Karla", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque", "Karla", ui-sans-serif, sans-serif;
+
+  --color-fundo: var(--sdr-fundo);
+  --color-superficie: var(--sdr-superficie);
+  --color-superficie-2: var(--sdr-superficie-2);
+  --color-texto: var(--sdr-texto);
+  --color-suave: var(--sdr-suave);
+  --color-linha: var(--sdr-linha);
+
+  --color-acento: var(--sdr-acento);
+  --color-acento-tinta: var(--sdr-acento-tinta);
+
+  --color-quente: var(--sdr-quente);
+  --color-morno: var(--sdr-morno);
+  --color-frio: var(--sdr-frio);
+
+  --color-sucesso: var(--sdr-sucesso);
+  --color-erro: var(--sdr-erro);
+
+  /* Canto generoso e sombra macia são metade da personalidade do Calçadão. */
+  --radius-cartao: 15px;
+  --radius-suave: 9px;
+  --shadow-cartao: var(--sdr-sombra);
+}
+
+/* --------------------------------------------------------------------------
+   Escala
+   --------------------------------------------------------------------------
+   O app estava lido de perto: a maioria do texto usava `text-sm` (14px) e
+   `text-xs` (12px), que num monitor grande fica miúdo. Em vez de trocar a
+   classe em cinquenta lugares, a escala inteira sobe aqui, e o espaçamento
+   sobe com ela para a densidade não apertar.
+
+   As proporções de `line-height` do Tailwind são calculadas em cima destes
+   mesmos tokens, então elas acompanham sozinhas. */
+
+@theme {
+  --spacing: 0.27rem;
+
+  --text-xs: 0.8125rem;
+  --text-sm: 0.9375rem;
+  --text-base: 1.0625rem;
+  --text-lg: 1.1875rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.6875rem;
+  --text-3xl: 2.0625rem;
+}
+
+/* --------------------------------------------------------------------------
+   Base
+   -------------------------------------------------------------------------- */
+
+body {
+  @apply bg-fundo text-texto antialiased;
+  font-family: var(--font-sans);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+
+/* Foco visível em tudo que recebe teclado. O anel sai do acento, então ele
+   funciona nos dois temas sem uma segunda regra. */
+:focus-visible {
+  outline: 2px solid var(--sdr-acento);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   Temperatura como faixa na borda. É o que deixa o corretor varrer trinta
+   leads sem ler um badge por linha.
+   -------------------------------------------------------------------------- */
+
+.faixa {
+  border-left: 3px solid var(--faixa-cor, transparent);
+}
+
+.faixa[data-t="HOT"] {
+  --faixa-cor: var(--sdr-quente);
+}
+
+.faixa[data-t="WARM"] {
+  --faixa-cor: var(--sdr-morno);
+}
+
+.faixa[data-t="COLD"] {
+  --faixa-cor: var(--sdr-frio);
+}
+
+/* --------------------------------------------------------------------------
+   Mosaico do calçadão: o único ornamento da direção, e só no cabeçalho.
+   -------------------------------------------------------------------------- */
+
+.mosaico {
+  background-image: repeating-linear-gradient(
+    118deg,
+    color-mix(in oklab, var(--sdr-acento) 9%, transparent) 0 9px,
+    transparent 9px 22px
+  );
+}
+
+/* --------------------------------------------------------------------------
+   Movimento
+   -------------------------------------------------------------------------- */
+
+.rolagem-suave {
+  scroll-behavior: smooth;
+}
+
+/* Três pontinhos do "digitando". Um turno com Gemini leva de 2 a 6 segundos e
+   sem indicador a tela parece travada. */
+/* O piso de opacidade não desce de 0.35: em 0.25, sobre o azul profundo do
+   tema escuro, o ponto some de vez e a animação vira um piscar de nada. */
+@keyframes pulsar-ponto {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0) scale(0.85);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1);
+  }
+}
+
+.ponto-digitando {
+  animation: pulsar-ponto 1.2s infinite;
+}
+
+/* Chip de "anotei: Botafogo" entrando. É a prova visual de que o agente tem
+   memória, então ele precisa ser notado. */
+@keyframes surgir-chip {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.chip-novidade {
+  animation: surgir-chip 0.35s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rolagem-suave {
+    scroll-behavior: auto;
+  }
+
+  .ponto-digitando,
+  .chip-novidade {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}
