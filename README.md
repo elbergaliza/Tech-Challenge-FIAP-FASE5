@@ -146,3 +146,36 @@ Solução:
 Gemini gratuito tem limite de 60 requisições por minuto
 Espere um minuto e tente novamente
 Ou distribua as requisições no tempo
+
+---
+
+# Parte 4: Frontend (Chat e Dashboard)
+
+Interface em React + TypeScript + Vite, consumindo a API da Parte 3.
+
+```bash
+python backend/run.py     # backend em http://localhost:8000
+
+cd frontend
+npm install
+npm run dev               # http://localhost:5173
+```
+
+Telas: chat do lead (`/`), dashboard do corretor (`/painel`), detalhe do lead
+com o resumo da IA (`/painel/leads/:id`), agenda (`/painel/agenda`) e catálogo
+de imóveis (`/painel/imoveis`).
+
+Detalhes de instalação, decisões e como cada campo da API virou UI:
+[`frontend/README.md`](frontend/README.md). Contrato das rotas:
+[`docs/frontend-integracao.md`](docs/frontend-integracao.md).
+
+Para conferir o sistema pela tela, funcionalidade por funcionalidade, e para
+ensaiar a apresentação:
+[`docs/roteiro-de-teste-manual.md`](docs/roteiro-de-teste-manual.md).
+
+O que sai do sistema para o Google Gemini, quais direitos do titular estão na
+tela e, com o mesmo cuidado, **até onde a proteção vai**:
+[`docs/privacidade-e-limites.md`](docs/privacidade-e-limites.md). Vale ler
+antes da apresentação: declarar o limite antes de perguntarem vale mais que a
+proteção em si.
+

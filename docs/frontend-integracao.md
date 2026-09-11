@@ -48,11 +48,23 @@ A resposta traz tudo que a tela precisa, num payload só:
 
   "perfil": {                                        // o que a IA sabe até agora
     "intent": "RENT", "region": "Botafogo",
-    "bedrooms": "2", "price_range": "5 mil", "name": "Bruna"
+    "bedrooms": "2", "price_range": "5k", "name": "Bruna"
+  },
+  "perfil_label": {                                  // o mesmo, pronto para LER
+    "intent": "aluguel", "region": "Botafogo",
+    "bedrooms": "2", "price_range": "R$ 5.000", "name": "Bruna"
+  },
+  // Para quem investe, o perfil traz `investor_ticket` e `expected_return` no
+  // lugar de `bedrooms`: a coleta muda com a intenção, porque investidor
+  // decide por ticket e retorno, não por número de quartos.
+  "perfil_campos": {                                 // o nome de cada campo
+    "intent": "Intenção", "region": "Região",
+    "bedrooms": "Quartos", "price_range": "Faixa de preço", "name": "Nome"
   },
 
   "novidades": [                                     // o que ela aprendeu NESTE turno
-    { "field": "region", "from": null, "to": "Botafogo", "kind": "new" }
+    { "field": "region", "from": null, "to": "Botafogo", "kind": "new",
+      "field_label": "Região", "from_label": null, "to_label": "Botafogo" }
   ],
 
   "imoveis": [                                       // sugestões do RAG
@@ -69,9 +81,12 @@ A resposta traz tudo que a tela precisa, num payload só:
 
 **Três campos que valem virar UI:**
 
-- **`novidades`** — pisque um chip "anotei: Botafogo" ao lado da mensagem. É a
-  prova visual, na tela, de que o agente tem memória. `kind` é `"new"` ou
-  `"correction"` (o lead mudou de ideia); vale um ícone diferente pra cada.
+- **`novidades`** — pisque um chip "anotei: Região = Botafogo" ao lado da
+  mensagem. É a prova visual, na tela, de que o agente tem memória. `kind` é
+  `"new"` ou `"correction"` (o lead mudou de ideia); vale um ícone diferente
+  pra cada. Use os `*_label`: eles trazem o nome do campo e os valores já
+  legíveis ("Urgência", "alta"), enquanto `field`, `from` e `to` seguem crus
+  para quem precisa comparar.
 - **`imoveis`** — renderize como cards abaixo da resposta. O `reason` já vem
   escrito em português explicando por que aquele imóvel foi escolhido; é o que
   faz o RAG parecer inteligente em vez de aleatório.
@@ -116,8 +131,8 @@ GET /leads?temperatura=HOT&status=QUALIFICADO&intencao=BUY&busca=maria
           &ordenar_por=score|criado_em|ultima_mensagem_em&limite=50&offset=0
 ```
 
-Cada item traz `intencao_label`, `urgencia_label`, `temperatura_label` e
-`status_label` já traduzidos, mais `total_mensagens` e `horas_sem_resposta`. Não
+Cada item traz `intencao_label`, `urgencia_label`, `temperatura_label`,
+`status_label` e `faixa_preco_label` já traduzidos, mais `total_mensagens` e `horas_sem_resposta`. Não
 monte tabela de tradução no front — se traduzir de novo aí, as duas saem de
 sincronia na primeira mudança.
 
