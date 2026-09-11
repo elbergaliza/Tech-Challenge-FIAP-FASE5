@@ -27,6 +27,21 @@ import { api } from "../services/api";
 
 const BASE = "http://localhost:8000";
 
+// O selo do id na barra da conversa mostra o id ENCURTADO, e guarda o valor
+// inteiro no `title`.
+//
+// O id deixou de ser "lead-0011" e virou um hexadecimal de 21 caracteres,
+// porque sequencial ele transformava as rotas de LGPD num oraculo sobre
+// qualquer lead. Com 21 caracteres, ele sozinho ocupava metade da barra num
+// celular e espremia o botao "Nova conversa" em duas linhas; por isso o texto
+// e cortado. Procurar pelo `title` testa a mesma coisa que antes (o id certo
+// esta na tela) sem depender de quantos caracteres cabem.
+function selarIdNaTela(leadId: string) {
+  const selo = document.querySelector(`[title="${leadId}"]`);
+  expect(selo, `nao achei o selo do lead ${leadId} na barra da conversa`).not.toBeNull();
+  return selo as HTMLElement;
+}
+
 // O id nasce no primeiro turno e atravessa a jornada inteira.
 let leadId: string | null = null;
 
@@ -123,7 +138,7 @@ describe("bloco 2: primeira mensagem e consentimento", () => {
     // Isto é o que impede um lead duplicado no funil a cada recarga.
     leadId = localStorage.getItem("lead_id");
     expect(leadId).toMatch(/^lead-/);
-    expect(screen.getByText(leadId!)).toBeInTheDocument();
+    selarIdNaTela(leadId!);
 
     // O aceite não é pedido de novo depois do primeiro turno.
     expect(
@@ -135,7 +150,7 @@ describe("bloco 2: primeira mensagem e consentimento", () => {
 describe("blocos 3 e 4: memória e RAG", () => {
   it("anota o que o lead disse e sugere imóveis com o porquê", async () => {
     abrir();
-    await waitFor(() => expect(screen.getByText(leadId!)).toBeInTheDocument());
+    await waitFor(() => selarIdNaTela(leadId!));
 
     await conversar("meu orçamento é até 4 mil por mês e preciso para esse mês");
 
@@ -172,7 +187,7 @@ describe("bloco 5: reabrir a conversa", () => {
       { timeout: 30_000 },
     );
 
-    expect(screen.getByText(leadId!)).toBeInTheDocument();
+    selarIdNaTela(leadId!);
     expect(
       screen.getByText(/quero alugar um apartamento de 2 quartos em Botafogo/),
     ).toBeInTheDocument();

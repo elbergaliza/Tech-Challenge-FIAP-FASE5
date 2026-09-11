@@ -273,3 +273,53 @@ h4 {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Alvo de toque no celular.
+ *
+ * Medido com o navegador em 375x667: os chips de filtro, o seletor de tema e
+ * os botões de status tinham 26px de altura, e os `select` 28px. A Apple
+ * recomenda 44px e o Google 48px; abaixo de 32px o erro de toque num aparelho
+ * de verdade é constante, e quem estiver testando vai achar que o botão não
+ * funciona quando na verdade errou o alvo por três pixels.
+ *
+ * A regra vive atrás de `pointer: coarse`, então o desktop fica exatamente
+ * como está: lá o ponteiro é preciso e o design compacto é uma escolha, não um
+ * descuido. `min-height` em elemento inline não faz efeito, então links de
+ * texto corrido passam ilesos; só os que são inline-flex (os chips) crescem.
+ *
+ * 2.5rem em vez dos 44px do guia porque 44 empurraria o cabeçalho e as barras
+ * de filtro para longe do resto da composição. 40px já resolve o erro de toque
+ * e mantém a proporção do "Calçadão". */
+@media (pointer: coarse) {
+  button,
+  select,
+  [role="button"],
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-height: 2.5rem;
+  }
+
+  /* A caixa de consentimento é o único controle em que a área clicável de
+     verdade é o <label> inteiro, e ela já é grande. Forçar 40px no quadradinho
+     só desalinharia ele do texto. */
+  input[type="checkbox"] {
+    min-height: 0;
+  }
+}
+
+/* Links que funcionam como navegação, e não como palavra dentro de um texto.
+ *
+ * `min-height` não faz nada em elemento inline, então estes três escaparam da
+ * regra acima e continuavam com 18 a 21px de altura: o "voltar" do detalhe do
+ * lead e os nomes de lead que levam para a ficha, no painel e na agenda. São
+ * exatamente os links que alguém tenta tocar primeiro numa demonstração.
+ *
+ * O padding vertical vem com margem negativa igual, então a área clicável
+ * cresce sem empurrar nada do que está em volta. */
+@media (pointer: coarse) {
+  .alvo-de-toque {
+    display: inline-block;
+    padding-block: 0.625rem;
+    margin-block: -0.625rem;
+  }
+}

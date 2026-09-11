@@ -98,7 +98,7 @@ export default function LeadDetalhe() {
     <div className="space-y-4">
       <Link
         to="/painel"
-        className="inline-block text-sm text-suave underline-offset-2 hover:underline"
+        className="alvo-de-toque inline-block text-sm text-suave underline-offset-2 hover:underline"
       >
         ← Voltar ao painel
       </Link>

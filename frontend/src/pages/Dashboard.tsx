@@ -345,7 +345,7 @@ function PainelFollowups() {
                 <div>
                   <Link
                     to={`/painel/leads/${item.lead_id}`}
-                    className="text-sm font-medium text-texto underline-offset-2 hover:underline"
+                    className="alvo-de-toque text-sm font-medium text-texto underline-offset-2 hover:underline"
                   >
                     {item.lead_nome ?? item.lead_id}
                   </Link>

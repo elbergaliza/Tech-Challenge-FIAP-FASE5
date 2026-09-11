@@ -130,7 +130,7 @@ function LinhaAgendamento({
           <p className="mt-0.5 text-sm text-texto">
             <Link
               to={`/painel/leads/${item.lead_id}`}
-              className="font-medium underline-offset-2 hover:underline"
+              className="alvo-de-toque font-medium underline-offset-2 hover:underline"
             >
               {item.lead_nome ?? item.lead_id}
             </Link>

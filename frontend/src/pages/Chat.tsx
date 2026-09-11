@@ -236,15 +236,34 @@ export default function Chat() {
     setErro(null);
   }
 
+  // A altura do cartão desconta o cabeçalho MEDIDO (ver
+  // `usarAlturaDoCabecalho` no App.tsx) mais os 3rem do `py-6` do <main>.
+  //
+  // Era `8.5rem` chumbado, tirado do cabeçalho de UMA linha do desktop. No
+  // celular ele quebra em três linhas e vai a 150px, e o cartão terminava 40px
+  // abaixo da dobra levando o campo de texto e o botão Enviar junto: medido,
+  // acontecia no iPhone SE, no iPhone 14 e no Pixel 7. O 6.7rem de reserva é o
+  // cabeçalho do desktop, para o primeiro quadro não saltar enquanto a medida
+  // não chega.
   return (
     <div className="mx-auto grid max-w-[76rem] gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
       <Card
-        className="flex h-[calc(100dvh-8.5rem)] min-h-[26rem] flex-col overflow-hidden"
+        className="flex h-[calc(100dvh-var(--altura-cabecalho,6.7rem)-3rem)] min-h-[26rem] flex-col overflow-hidden"
         titulo={
-          <span className="flex items-center gap-2">
-            Conversa
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0">Conversa</span>
+            {/* O id virou um hexadecimal de 21 caracteres (era "lead-0011"),
+                e no celular ele sozinho ocupava metade da barra, espremendo o
+                botao em duas linhas. Encurtar o TEXTO em vez de truncar por
+                CSS evita depender de breakpoint e funciona igual em qualquer
+                largura; o valor inteiro fica no `title`, para quem precisa
+                conferir ou copiar. */}
             {leadId && (
-              <BadgeSimples cor="bg-superficie-2 text-suave">{leadId}</BadgeSimples>
+              <span className="min-w-0" title={leadId}>
+                <BadgeSimples cor="bg-superficie-2 text-suave">
+                  {leadId.length > 15 ? `${leadId.slice(0, 14)}…` : leadId}
+                </BadgeSimples>
+              </span>
             )}
           </span>
         }

@@ -2,6 +2,7 @@
 // corretor no painel), o controle de tema e o aviso global de que a IA está em
 // modo mock.
 
+import { useEffect, useRef } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 
 import { Tema } from "./components/Tema";
@@ -40,12 +41,61 @@ const ABAS = [
   ...(MODO_CORRETOR ? ABAS_DO_CORRETOR : []),
 ];
 
+// Quanto o cabeçalho ocupa, publicado como variável CSS para quem precisa
+// descontar isso da altura da tela.
+//
+// Quem precisa é o cartão da conversa, que é de altura fixa para a caixa de
+// escrever ficar sempre colada embaixo e as mensagens rolarem por dentro. A
+// conta era `100dvh - 8.5rem`, com o 8.5rem chumbado a partir do cabeçalho de
+// UMA linha do desktop. No celular ele quebra em três linhas e passa de 107px
+// para 150px, e o resultado medido era o cartão terminando 40px ABAIXO da
+// dobra: o campo de texto e o botão Enviar simplesmente não apareciam, nos
+// três aparelhos testados.
+//
+// Um número maior chumbado só adiaria o problema: o cabeçalho também muda de
+// altura quando `VITE_MODO_CORRETOR` esconde três abas, quando a fonte demora
+// a carregar e quando o selo de "IA em modo mock" aparece. Medir o elemento
+// resolve os quatro casos de uma vez.
+function usarAlturaDoCabecalho() {
+  const ref = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const alvo = ref.current;
+    if (!alvo) return;
+
+    function publicar(altura: number) {
+      document.documentElement.style.setProperty(
+        "--altura-cabecalho",
+        `${Math.round(altura)}px`,
+      );
+    }
+
+    publicar(alvo.getBoundingClientRect().height);
+
+    // Navegador antigo sem ResizeObserver continua com o valor da montagem,
+    // que já é melhor que a constante que estava aqui.
+    if (typeof ResizeObserver === "undefined") return;
+
+    const observador = new ResizeObserver((entradas) => {
+      for (const entrada of entradas) publicar(entrada.contentRect.height);
+    });
+    observador.observe(alvo);
+    return () => observador.disconnect();
+  }, []);
+
+  return ref;
+}
+
 function Cabecalho() {
+  const refCabecalho = usarAlturaDoCabecalho();
   const saude = useSaude();
   const modoMock = saude !== null && saude !== false && saude.ia.agente === "mock";
 
   return (
-    <header className="mosaico sticky top-0 z-10 border-b border-linha bg-superficie/95 backdrop-blur">
+    <header
+      ref={refCabecalho}
+      className="mosaico sticky top-0 z-10 border-b border-linha bg-superficie/95 backdrop-blur"
+    >
       <div className="mx-auto flex max-w-[88rem] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
         <div className="flex items-center gap-2">
           <span className="grid size-9 place-items-center rounded-suave bg-acento font-display text-sm font-bold text-acento-tinta">

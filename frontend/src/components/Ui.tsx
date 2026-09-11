@@ -16,14 +16,29 @@ export function Card({
   children: ReactNode;
   className?: string;
 }) {
+  // `min-w-0` existe por causa do celular, e o defeito que ele conserta é
+  // invisível numa tela grande.
+  //
+  // Item de grid e de flex nasce com `min-width: auto`: ele se recusa a ficar
+  // menor que o próprio conteúdo. A tabela de leads pede `min-w-[40rem]` de
+  // propósito, dentro de um contêiner com rolagem horizontal, porque a
+  // intenção é a TABELA rolar. Sem o `min-w-0`, esse pedido de 640px subia
+  // pelo cartão até a trilha do grid, e quem rolava de lado era a PÁGINA
+  // INTEIRA: cabeçalho, KPIs e gráficos derivavam junto. Num aparelho de
+  // 390px, medido, eram 304px de deriva.
   return (
     <section
-      className={`rounded-cartao border border-linha bg-superficie shadow-cartao ${className}`}
+      className={`min-w-0 rounded-cartao border border-linha bg-superficie shadow-cartao ${className}`}
     >
       {(titulo || acao) && (
         <header className="flex items-center justify-between gap-3 border-b border-linha px-4 py-3">
-          <h2 className="font-display text-sm font-semibold">{titulo}</h2>
-          {acao}
+          {/* `min-w-0` no título e `shrink-0` na ação: numa tela estreita quem
+              cede espaço é o título, que pode truncar, e não o botão, que
+              precisa continuar clicável e legível. Sem isso, um título longo
+              (o cartão da conversa mostra o id do lead ao lado do nome)
+              espremia "Nova conversa" em duas linhas. */}
+          <h2 className="min-w-0 font-display text-sm font-semibold">{titulo}</h2>
+          {acao && <div className="shrink-0">{acao}</div>}
         </header>
       )}
       {/* `min-h-0 flex-1` é o que sustenta o cartão de altura fixa do chat.
