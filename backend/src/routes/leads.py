@@ -56,6 +56,13 @@ def listar(
 def criar(dados: LeadCriar, db: Session = Depends(get_db)):
     # Para o corretor cadastrar um lead que chegou por fora do chat.
     lead = lead_service.criar(db, dados.model_dump(), origem=dados.origem)
+
+    # Consentimento tem duas casas (ver o PATCH abaixo). Aqui quem marca e o
+    # corretor, nao o titular, entao a origem entra no proposito registrado: o
+    # aceite veio de fora do chat e a prova dele mora fora do sistema.
+    if dados.consentimento:
+        ai_service.registrar_consentimento(lead.id, True, origem=dados.origem)
+
     return lead_service.para_dto(db, lead)
 
 
@@ -102,9 +109,24 @@ def atualizar(lead_id: str, alteracoes: LeadAtualizar, db: Session = Depends(get
     if not lead:
         raise HTTPException(404, "Lead nao encontrado.")
 
-    return lead_service.para_dto(
-        db, lead_service.atualizar(db, lead, alteracoes.model_dump(exclude_unset=True)),
-    )
+    mudancas = alteracoes.model_dump(exclude_unset=True)
+
+    # O consentimento mora em dois lugares: a coluna do lead e o `consent` da
+    # memoria da Parte 2, que e quem o follow-up consulta. Gravar so a coluna
+    # fazia a tela dizer que o lead aceitou enquanto o agente seguia proibido
+    # de retomar, e nada na resposta denunciava a divergencia.
+    #
+    # A comparacao vem ANTES do update: depois dele, `lead.consentimento` ja e
+    # o valor novo e a mudanca nunca seria detectada.
+    consentimento = mudancas.get("consentimento")
+    mudou = consentimento is not None and consentimento != lead.consentimento
+
+    lead = lead_service.atualizar(db, lead, mudancas)
+
+    if mudou:
+        ai_service.registrar_consentimento(lead.id, consentimento)
+
+    return lead_service.para_dto(db, lead)
 
 
 @router.delete("/{lead_id}", status_code=204,

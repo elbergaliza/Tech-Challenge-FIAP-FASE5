@@ -59,6 +59,21 @@ SEED_LIMIT = _int("SEED_LIMIT", 0)  # 0 = base inteira
 FOLLOWUP_ENABLED = _bool("FOLLOWUP_ENABLED", True)
 FOLLOWUP_INTERVAL_MINUTES = _int("FOLLOWUP_INTERVAL_MINUTES", 30)
 
+# O job de follow-up escreve o texto com a HEURISTICA, nao com o LLM.
+#
+# Ligado por padrao e acordando a cada 30 minutos, ele gerava texto com IA para
+# cada lead elegivel, em segundo plano, sem ninguem ver. A cota gratuita do
+# Gemini e de 20 requisicoes por DIA e POR MODELO, e o job usa o MESMO modelo
+# do chat: bastava o testador seguir o proprio roteiro e envelhecer alguns
+# leads para o chat comecar a cair no mock sem nenhuma explicacao aparente na
+# tela, porque a cota tinha ido embora num job invisivel.
+#
+# O texto heuristico ja existe, ja usa o perfil do lead e ja funciona. O texto
+# com IA continua disponivel sob demanda, na rota que o corretor chama
+# explicitamente (`/dashboard/followups?com_texto=true`), onde ele sabe que
+# esta gastando.
+FOLLOWUP_USA_LLM = _bool("FOLLOWUP_USA_LLM", False)
+
 # Quantos turnos de conversa vao para o agente. Espelha o corte que a Pessoa 1
 # ja faz em `historico[-10:]`.
 HISTORY_WINDOW = _int("HISTORY_WINDOW", 10)

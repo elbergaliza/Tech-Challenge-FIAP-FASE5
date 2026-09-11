@@ -39,6 +39,34 @@ async def lifespan(app: FastAPI):
     from jobs import followup_scheduler
     followup_scheduler.iniciar()
 
+    # Limitacao de Armazenamento (LGPD art. 6, III e V): a memoria da IA tem
+    # prazo, e ate agora o `purge_expired` existia e nunca era chamado por
+    # ninguem. Uma politica de retencao que so esta escrita no codigo e uma
+    # politica que nao existe.
+    #
+    # Roda no boot, e nao num job proprio: a purga e barata (uma varredura de
+    # datas), o projeto reinicia varias vezes por dia durante o
+    # desenvolvimento, e um agendador a mais e uma peca a mais para dar errado
+    # na apresentacao.
+    try:
+        import services.ai_service as _ai
+        apagados = _ai.purgar_expirados()
+        if apagados:
+            print("[lgpd] %d lead(s) fora do prazo de retencao removidos: %s"
+                  % (len(apagados), ", ".join(apagados)))
+    except Exception as erro:
+        print("[lgpd] Purga de retencao ignorada: %s" % erro)
+
+    # Indice do RAG numa thread: o comentario acima explica por que ele nao
+    # pode ser construido AQUI, bloqueando o boot. Fora do caminho critico,
+    # porem, ele tira dezenas de segundos da primeira mensagem do chat, que era
+    # quem pagava a conta com a pessoa esperando na tela.
+    import threading
+
+    import services.ai_service as ai_service
+    threading.Thread(target=ai_service.aquecer_indice, daemon=True,
+                     name="aquecer-indice").start()
+
     # Sem a porta na mensagem: quem a escolhe e o uvicorn, e chutar 8000 aqui
     # produz um link errado justamente para quem subiu em outra porta.
     print("[api] Pronta. Docs em /docs")

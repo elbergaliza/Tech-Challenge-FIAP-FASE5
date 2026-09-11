@@ -28,6 +28,7 @@ import bootstrap  # noqa: E402,F401
 import config  # noqa: E402
 import services.ai_service as ai_service  # noqa: E402
 import services.chat_service as chat_service  # noqa: E402
+import followup  # noqa: E402
 from database.db import SessionLocal  # noqa: E402
 from models.lead import Lead, StatusLead  # noqa: E402
 
@@ -36,6 +37,20 @@ _scheduler = None
 
 def rodar_uma_vez(dry_run: bool = False) -> list[dict]:
     # Um ciclo. Devolve o que foi (ou seria) enviado.
+    #
+    # Horario comercial primeiro, antes de qualquer consulta: um lead urgente
+    # que escrevia as 22h40 e sumia recebia "Oi! Continuo de olho em opcoes de
+    # 2 quartos em Botafogo pra voce" as 02h40, porque a cadencia so media
+    # horas de silencio e o job acorda a cada 30 minutos. Nenhuma imobiliaria
+    # faz isso, e para o lead e motivo de bloquear o contato.
+    #
+    # O `--dry-run` ignora a janela de proposito: ele nao envia nada, e serve
+    # justamente para conferir a lista fora do horario.
+    pode_agora, motivo = followup.dentro_do_horario()
+    if not pode_agora and not dry_run:
+        print("[followup] %s. Nada enviado neste ciclo." % motivo)
+        return []
+
     pendentes = ai_service.followups_pendentes(gerar_texto=False)
     if not pendentes:
         print("[followup] Ninguem para retomar agora.")
