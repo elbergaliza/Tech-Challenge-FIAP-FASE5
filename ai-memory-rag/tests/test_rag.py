@@ -1155,5 +1155,47 @@ class TestIntegrationWithPerson1(unittest.TestCase):
         self.assertIsNotNone(self.search_lead({}, "oi"))
 
 
+class TestFiltrosDoInvestidor(unittest.TestCase):
+    """O dinheiro do investidor esta no ticket, nao no orcamento."""
+
+    def test_ticket_vira_teto_de_preco(self):
+        f = retriever.filters_from_profile(
+            {"intent": "INVEST", "investor_ticket": "800k"},
+        )
+        # Sem isto, o investidor de 800 mil recebia casa de 6,5 milhoes: o
+        # filtro de preco ficava vazio e sobrava so a ordenacao, que favorece
+        # imovel caro.
+        self.assertEqual(f.max_price, 800000.0)
+        self.assertEqual(f.deal_type, "SALE")
+
+    def test_orcamento_explicito_tem_prioridade_sobre_o_ticket(self):
+        f = retriever.filters_from_profile(
+            {"intent": "INVEST", "investor_ticket": "800k", "price_range": "500k"},
+        )
+        self.assertEqual(f.max_price, 500000.0)
+
+    def test_retorno_mensal_vira_piso_de_rentabilidade(self):
+        # 2 mil por mes sobre 800 mil sao 3% ao ano. Quase ninguem responde
+        # "8% ao ano": o lead diz quanto quer receber por mes.
+        f = retriever.filters_from_profile(
+            {"intent": "INVEST", "investor_ticket": "800k", "expected_return": "2k"},
+        )
+        self.assertAlmostEqual(f.min_yield, 3.0, places=2)
+
+    def test_retorno_em_percentual_continua_valendo(self):
+        f = retriever.filters_from_profile(
+            {"intent": "INVEST", "investor_ticket": "500k", "expected_return": "8%"},
+        )
+        self.assertAlmostEqual(f.min_yield, 8.0, places=2)
+
+    def test_locatario_nao_e_afetado(self):
+        f = retriever.filters_from_profile(
+            {"intent": "RENT", "price_range": "4k", "bedrooms": "2"},
+        )
+        self.assertEqual(f.deal_type, "RENTAL")
+        self.assertEqual(f.max_price, 4000.0)
+        self.assertIsNone(f.min_yield)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

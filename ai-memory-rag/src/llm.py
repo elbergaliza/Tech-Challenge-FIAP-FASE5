@@ -47,16 +47,42 @@ class UnavailableClient:
 # do Google, nao de nada errado no pedido. Medidos com a chave do projeto, ~1 em
 # 3 chamadas voltava 503 em horario de pico, no `gemini-3.6-flash` e igualmente
 # no `gemini-2.5-flash`, entao trocar de modelo nao resolve; esperar resolve.
-TRANSIENT_MARKERS = ("503", "UNAVAILABLE", "500", "INTERNAL", "429", "RESOURCE_EXHAUSTED",
+# 429 NAO esta nesta lista, e a ausencia dele e deliberada.
+#
+# A janela de cota por minuto do Gemini so reabre em ate 60 segundos, e a
+# cadencia aqui e de 1s e 3s: as tres tentativas falhavam do mesmo jeito, o
+# turno caia no mock exatamente como cairia na primeira, e o custo eram TRES
+# requisicoes da cota diaria de 20 em vez de uma. Numa tarde de testes isso
+# sozinho consumia a cota do dia em um terco do tempo.
+#
+# O que sobra aqui sao os erros que quatro segundos realmente resolvem:
+# capacidade momentanea do lado do Google. Medidos com a chave do projeto, ~1 em
+# 3 chamadas voltava 503 em horario de pico, no `gemini-3.6-flash` e igualmente
+# no `gemini-2.5-flash`, entao trocar de modelo nao resolve; esperar resolve.
+TRANSIENT_MARKERS = ("503", "UNAVAILABLE", "500", "INTERNAL",
                      "overloaded", "high demand")
 
 # Curto de proposito: isto roda no meio de uma conversa, e um humano do outro
 # lado da tela desiste antes de dez segundos.
 RETRY_WAITS = (1.0, 3.0)
 
+# Teto por chamada, em milissegundos. Ver o comentario no `GeminiClient`.
+TIMEOUT_MS = int(os.getenv("GEMINI_TIMEOUT_MS", "25000"))
+
+
+# Mantido para quem ainda chama `is_transient` passando um 429 explicito: com
+# o 429 fora de TRANSIENT_MARKERS os dois sabores ja caem no mesmo lugar, e
+# esta tupla existe para o motivo continuar documentado e testavel.
+#
+# A cota gratuita do Gemini e de 20 requisicoes por dia e POR MODELO, entao o
+# 429 de dia e rotina numa tarde de testes, nao excecao.
+COTA_DIARIA = ("PerDay", "per day")
+
 
 def is_transient(error):
     texto = str(error)
+    if any(marca in texto for marca in COTA_DIARIA):
+        return False
     return any(marker in texto for marker in TRANSIENT_MARKERS)
 
 
@@ -102,7 +128,15 @@ class GeminiClient:
 
         from google import genai  # import lazy: offline não precisa do pacote
 
-        self._client = genai.Client(api_key=api_key)
+        # Mesmo teto do cliente da Parte 1, e pelo mesmo motivo: sem
+        # `http_options`, o SDK passa `timeout=None` para o httpx, que
+        # significa "espere para sempre". Aqui a espera nao trava uma tela (o
+        # resumo e o follow-up rodam em segundo plano), mas trava o JOB: uma
+        # conexao pendurada segurava o ciclo inteiro e o `max_instances=1`
+        # impedia o proximo de comecar, entao o follow-up simplesmente parava
+        # de acontecer, em silencio.
+        self._client = genai.Client(api_key=api_key,
+                                    http_options={"timeout": TIMEOUT_MS})
         self._sleep = time.sleep
 
     def generate(self, prompt, temperature=0.4):

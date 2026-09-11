@@ -356,6 +356,11 @@ class ConversationMemory:
             if not is_known(previous):
                 kind = "new"
             elif str(previous) != str(value):
+                # Nem toda troca e correcao: ver `substituicao_valida`.
+                if not lead_profile.substituicao_valida(
+                    field, previous, value, message,
+                ):
+                    continue
                 kind = "correction"
             else:
                 continue

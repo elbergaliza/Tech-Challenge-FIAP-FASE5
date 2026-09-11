@@ -255,9 +255,25 @@ class TestLeadProfileAdapter(unittest.TestCase):
             "nome": "João", "intencao": "COMPRA", "preco_faixa": "500k",
             "regiao": "Copacabana", "quartos": "3", "urgencia": "alta",
             "email": "joao@x.com", "telefone": "(21) 98765-4321",
+            # `tipo_imovel` nasceu depois: a base tem 9 salas comerciais e 11
+            # studios, e sem o tipo quem pedia 2 quartos para MORAR recebia
+            # "Sala comercial de 0 quartos em Méier" quando a busca relaxava
+            # os filtros. Entra na ida e volta como qualquer outro campo.
+            "tipo_imovel": "APARTMENT",
         }
         self.assertEqual(lead_profile.to_agent(lead_profile.from_agent(original)),
                          original)
+
+    def test_round_trip_sem_tipo_marca_como_undefined(self):
+        # Campo que a conversa não trouxe volta com o marcador da Pessoa 1, e
+        # não sumido: é o que o `to_agent` promete para todo campo conhecido.
+        original = {
+            "nome": "João", "intencao": "COMPRA", "preco_faixa": "500k",
+            "regiao": "Copacabana", "quartos": "3", "urgencia": "alta",
+            "email": "joao@x.com", "telefone": "(21) 98765-4321",
+        }
+        volta = lead_profile.to_agent(lead_profile.from_agent(original))
+        self.assertEqual(volta["tipo_imovel"], "undefined")
 
     def test_to_agent_fills_gaps_with_their_undefined_marker(self):
         result = lead_profile.to_agent({"intent": "BUY"})
@@ -359,6 +375,24 @@ class TestDefaultUrgencyIsNotEvidence(unittest.TestCase):
 
         self.assertEqual(perfil["urgency"], "high")
 
+    def test_pressa_que_a_pessoa_1_nao_conhece_vira_alta(self):
+        # A lista dela tem oito expressoes e nao cobre as mais comuns de quem
+        # esta com prazo. Sem isto, "preciso mudar esse mes" chega como
+        # "baixa", o guarda descarta, e a urgencia fica desconhecida para
+        # sempre: o agente pergunta o prazo, o lead responde, e ele pergunta
+        # de novo.
+        for texto in ("preciso mudar esse mes", "quero o quanto antes",
+                      "meu contrato vence mes que vem", "e para ontem"):
+            perfil = lead_profile.from_agent({"urgencia": "baixa"}, message=texto)
+            self.assertEqual(perfil.get("urgency"), "high", texto)
+
+    def test_pressa_nao_inventa_urgencia_em_texto_neutro(self):
+        # O outro lado: nao pode virar um detector que ve pressa em tudo.
+        for texto in ("oi, tudo bem?", "quero 2 quartos em Botafogo",
+                      "meu telefone e 21 99999-0000"):
+            perfil = lead_profile.from_agent({"urgencia": "baixa"}, message=texto)
+            self.assertNotIn("urgency", perfil, texto)
+
     def test_medium_urgency_is_never_filtered(self):
         perfil = lead_profile.from_agent(
             {"urgencia": "media"}, message="qualquer coisa",
@@ -378,6 +412,100 @@ class TestDefaultUrgencyIsNotEvidence(unittest.TestCase):
                       "so olhando por enquanto", "Só Olhando"):
             perfil = lead_profile.from_agent({"urgencia": "baixa"}, message=texto)
             self.assertEqual(perfil.get("urgency"), "low", texto)
+
+
+class TestColetaDoInvestidor(unittest.TestCase):
+    """Quem investe decide por ticket e retorno, nao por numero de quartos."""
+
+    def test_ordem_muda_com_a_intencao(self):
+        locatario = lead_profile.collection_order_for({"intent": "RENT"})
+        investidor = lead_profile.collection_order_for({"intent": "INVEST"})
+
+        self.assertIn("bedrooms", locatario)
+        self.assertNotIn("bedrooms", investidor)
+        self.assertIn("investor_ticket", investidor)
+        self.assertIn("expected_return", investidor)
+
+    def test_investidor_e_perguntado_sobre_ticket_antes_de_regiao(self):
+        proximo = lead_profile.next_to_collect({"intent": "INVEST"})
+        self.assertEqual(proximo, "investor_ticket")
+
+    def test_locatario_nao_e_perguntado_sobre_ticket(self):
+        perfil = {"intent": "RENT", "region": "Botafogo", "bedrooms": "2",
+                  "price_range": "4k", "urgency": "high", "phone": "21 99999-0000"}
+        self.assertIsNone(lead_profile.next_to_collect(perfil))
+
+    def test_perfil_do_investidor_fica_completo_sem_quartos(self):
+        perfil = {"intent": "INVEST", "investor_ticket": "800k",
+                  "expected_return": "2k", "region": "Leblon",
+                  "urgency": "high", "phone": "21 99999-0000"}
+        self.assertIsNone(lead_profile.next_to_collect(perfil))
+
+    def test_campos_novos_tem_rotulo(self):
+        # `build_context` indexa FIELD_LABELS por campo do perfil: campo sem
+        # rotulo derruba a montagem do contexto com KeyError.
+        for campo in lead_profile.PROFILE_FIELDS:
+            self.assertIn(campo, lead_profile.FIELD_LABELS, campo)
+
+
+class TestIntencaoDeInvestimento(unittest.TestCase):
+    """Depois de "quero investir", a conversa inteira fala em alugar.
+
+    O agente pergunta se ele prefere "pronto para alugar", ele responde
+    "pronto para alugar", e a extracao sem estado rebaixava o investidor a
+    locatario: o ticket virava orcamento e o fluxo ia para visita em vez de
+    consultoria com especialista.
+    """
+
+    def test_alugar_nao_rebaixa_investidor(self):
+        vale = lead_profile.substituicao_valida(
+            "intent", "INVEST", "RENT", "pronto para alugar",
+        )
+        self.assertFalse(vale)
+
+    def test_comprar_nao_rebaixa_investidor(self):
+        vale = lead_profile.substituicao_valida(
+            "intent", "INVEST", "BUY", "prefiro comprar na planta",
+        )
+        self.assertFalse(vale)
+
+    def test_dizer_que_e_para_morar_desfaz(self):
+        # O lead mudou de ideia de verdade: isso e correcao legitima.
+        vale = lead_profile.substituicao_valida(
+            "intent", "INVEST", "RENT", "na verdade e para eu morar",
+        )
+        self.assertTrue(vale)
+
+    def test_outras_correcoes_seguem_livres(self):
+        # A protecao e so da intencao de investimento; subir o orcamento de
+        # 500k para 800k continua sendo correcao normal, e o corretor quer ver.
+        vale = lead_profile.substituicao_valida(
+            "price_range", "500k", "800k", "na verdade tenho 800 mil",
+        )
+        self.assertTrue(vale)
+
+
+class TestQuartosImplausiveis(unittest.TestCase):
+    """A extracao da Pessoa 1 aceita qualquer numero antes de "quartos".
+
+    Um lead que respondeu "R$ 8.550" para uma pergunta sobre quartos gravou
+    550 quartos, perdeu o orcamento e ficou com o campo travado, porque o
+    perfil e monotonico.
+    """
+
+    def test_valor_de_dinheiro_nao_vira_quantidade_de_quarto(self):
+        perfil = lead_profile.from_agent({"quartos": "550"}, message="R$ 8.550")
+        self.assertNotIn("bedrooms", perfil)
+
+    def test_quantidades_reais_passam(self):
+        for quantidade in ("0", "1", "3", "4", "10"):
+            perfil = lead_profile.from_agent({"quartos": quantidade}, message="x")
+            self.assertEqual(perfil.get("bedrooms"), quantidade, quantidade)
+
+    def test_lixo_nao_passa(self):
+        for valor in ("11", "550", "-1", "tres", ""):
+            perfil = lead_profile.from_agent({"quartos": valor}, message="x")
+            self.assertNotIn("bedrooms", perfil, valor)
 
 
 class TestUrgencyDoesNotLockTheProfile(unittest.TestCase):
@@ -945,3 +1073,47 @@ class TestJsonFileStore(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestApelidoOrfaoNaoDeixaCicatriz(unittest.TestCase):
+    """O modelo usa [NOME_1] antes de a pessoa se apresentar.
+
+    Aconteceu numa conversa real: o agente escreveu "Entendido, [NOME_1]!" no
+    sexto turno, quando o nome ainda nao existia no mapa, e o lead leu
+    "Entendido, !". O prompt pede para o modelo nao fazer isso, mas prompt e
+    pedido, nao garantia: a restauracao tem que devolver uma frase inteira
+    mesmo quando o modelo desobedece.
+    """
+
+    def setUp(self):
+        self.p = Pseudonymizer()
+        self.mapa = {"[TELEFONE_1]": "21 99999-4410", "[NOME_2]": "Ana"}
+
+    def test_vocativo_depois_da_virgula(self):
+        self.assertEqual(self.p.restore("Entendido, [NOME_1]!", self.mapa),
+                         "Entendido!")
+
+    def test_vocativo_antes_da_virgula(self):
+        self.assertEqual(self.p.restore("[NOME_1], entendi.", self.mapa),
+                         "entendi.")
+
+    def test_vocativo_antes_do_ponto(self):
+        self.assertEqual(self.p.restore("Certo, [NOME_1]. Qual a regiao?", self.mapa),
+                         "Certo. Qual a regiao?")
+
+    def test_apelido_solto_sem_pontuacao(self):
+        self.assertEqual(self.p.restore("Oi [NOME_1] tudo bem?", self.mapa),
+                         "Oi tudo bem?")
+
+    def test_apelido_conhecido_continua_intacto_com_a_virgula(self):
+        # A limpeza nao pode comer a virgula de quem TEM nome.
+        self.assertEqual(self.p.restore("Perfeito, [NOME_2]!", self.mapa),
+                         "Perfeito, Ana!")
+
+    def test_varios_apelidos_conhecidos(self):
+        self.assertEqual(
+            self.p.restore("Ola, [NOME_2], seu telefone e [TELEFONE_1].", self.mapa),
+            "Ola, Ana, seu telefone e 21 99999-4410.")
+
+    def test_texto_sem_apelido_nao_e_tocado(self):
+        self.assertEqual(self.p.restore("Perfeito!", self.mapa), "Perfeito!")
