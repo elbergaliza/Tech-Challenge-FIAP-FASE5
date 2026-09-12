@@ -1,0 +1,182 @@
+<!-- ====================== APÊNDICE A ====================== -->
+<section>
+  <h1><span class="numero">Apêndice A</span>Ficha técnica</h1>
+
+  <h2>Tecnologias</h2>
+
+  <table>
+    <thead><tr><th style="width:26%">Camada</th><th>Tecnologia</th></tr></thead>
+    <tbody>
+      <tr><td>Agente</td><td>Google Gemini (<code>gemini-2.5-flash</code>), SDK <code>google-genai</code></td></tr>
+      <tr><td>Memória e RAG</td><td>Python puro, embeddings <code>gemini-embedding-001</code> com alternativa lexical</td></tr>
+      <tr><td>Backend</td><td>FastAPI, SQLAlchemy, SQLite, APScheduler</td></tr>
+      <tr><td>Frontend</td><td>Vite 7, React 19, TypeScript, Tailwind CSS 4</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Constantes que valem conhecer</h2>
+
+  <table>
+    <thead><tr><th style="width:44%">Constante</th><th style="width:26%">Valor</th><th>Onde</th></tr></thead>
+    <tbody>
+      <tr><td>Janela de histórico enviada ao agente</td><td>10 turnos</td><td><code>HISTORY_WINDOW</code></td></tr>
+      <tr><td>Limiar de resumo da memória</td><td>20 mensagens</td><td><code>SUMMARY_THRESHOLD</code></td></tr>
+      <tr><td>Retenção da memória</td><td>180 dias</td><td><code>DEFAULT_RETENTION_DAYS</code></td></tr>
+      <tr><td>Cadência de follow-up</td><td>24h, 72h, 168h</td><td><code>DEFAULT_CADENCE</code></td></tr>
+      <tr><td>Cadência para urgência alta</td><td>4h, 24h, 72h</td><td><code>URGENT_CADENCE</code></td></tr>
+      <tr><td>Janela de envio</td><td>9h às 20h, sem domingo</td><td><code>HORA_INICIAL</code>, <code>HORA_FINAL</code></td></tr>
+      <tr><td>Limiar de lead quente</td><td>70 pontos</td><td><code>HOT_THRESHOLD</code></td></tr>
+      <tr><td>Limiar de lead morno</td><td>40 pontos</td><td><code>WARM_THRESHOLD</code></td></tr>
+      <tr><td>Teto por chamada ao Gemini</td><td>25 segundos</td><td><code>TIMEOUT_MS</code></td></tr>
+      <tr><td>Teto por requisição no front</td><td>90 segundos</td><td><code>TIMEOUT_MS</code> (api.ts)</td></tr>
+      <tr><td>Intervalo do job de follow-up</td><td>30 minutos</td><td><code>FOLLOWUP_INTERVAL_MINUTES</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Cobertura de testes</h2>
+
+  <table>
+    <thead><tr><th style="width:34%">Suíte</th><th style="width:18%">Quantidade</th><th>Comando</th></tr></thead>
+    <tbody>
+      <tr><td>Partes 1 e 2</td><td>401 testes</td><td><code>python -m pytest ai-core/tests ai-memory-rag/tests -q</code></td></tr>
+      <tr><td>Backend, ponta a ponta</td><td>97 verificações</td><td><code>python backend\tests\test_smoke.py</code></td></tr>
+      <tr><td>Frontend, unitários</td><td>121 testes</td><td><code>npm test</code></td></tr>
+      <tr><td>Frontend contra a API no ar</td><td>12 testes</td><td><code>npm run test:e2e</code></td></tr>
+      <tr><td>Contrato entre front e API</td><td>75 verificações</td><td><code>npm run test:contrato</code></td></tr>
+    </tbody>
+  </table>
+
+  <p>As duas suítes que falam com a API exigem o backend no ar. As demais rodam
+  sozinhas.</p>
+
+  <h2>Variáveis de ambiente</h2>
+
+  <table>
+    <thead><tr><th style="width:30%">Variável</th><th style="width:26%">Padrão</th><th>Para que serve</th></tr></thead>
+    <tbody>
+      <tr><td><code>GEMINI_API_KEY</code></td><td>vazio</td><td>A chave. Vazio significa modo mock</td></tr>
+      <tr><td><code>GEMINI_MODEL</code></td><td><code>gemini-2.5-flash</code></td><td>Modelo usado pelas duas metades</td></tr>
+      <tr><td><code>DATABASE_URL</code></td><td>SQLite em <code>backend/data/app.db</code></td><td>Banco</td></tr>
+      <tr><td><code>CORS_ORIGINS</code></td><td><code>localhost:5173,localhost:3000</code></td><td>Origens liberadas</td></tr>
+      <tr><td><code>FOLLOWUP_ENABLED</code></td><td><code>true</code></td><td>Liga o job de retomada</td></tr>
+      <tr><td><code>FOLLOWUP_INTERVAL_MINUTES</code></td><td><code>30</code></td><td>De quanto em quanto o job acorda</td></tr>
+      <tr><td><code>FOLLOWUP_USA_LLM</code></td><td><code>false</code></td><td>Se o job gasta IA para escrever o texto</td></tr>
+      <tr><td><code>SEED_ON_STARTUP</code></td><td><code>true</code></td><td>Popular a base de imóveis na subida</td></tr>
+      <tr><td><code>HISTORY_WINDOW</code></td><td><code>10</code></td><td>Turnos enviados ao agente</td></tr>
+      <tr><td><code>VITE_API_URL</code></td><td><code>http://localhost:8000</code></td><td>Front: onde está a API</td></tr>
+      <tr><td><code>VITE_MODO_CORRETOR</code></td><td><code>true</code></td><td>Front: mostra ou esconde as abas do painel</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ====================== APÊNDICE B ====================== -->
+<section>
+  <h1><span class="numero">Apêndice B</span>Comandos de referência</h1>
+
+  <h2>Preparar, uma vez só</h2>
+
+<pre><code>cd "D:\Projects\Pos\Fase 05\Tech-Challenge-FIAP-FASE5"
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+
+cd frontend
+npm install</code></pre>
+
+  <h2>Subir, todo dia</h2>
+
+<pre><code><span class="cmt"># terminal 1</span>
+cd "D:\Projects\Pos\Fase 05\Tech-Challenge-FIAP-FASE5"
+.venv\Scripts\python.exe backend\run.py
+
+<span class="cmt"># terminal 2</span>
+cd "D:\Projects\Pos\Fase 05\Tech-Challenge-FIAP-FASE5\frontend"
+npm run dev</code></pre>
+
+  <h2>No dia da apresentação</h2>
+
+<pre><code>.venv\Scripts\python.exe backend\run.py --no-reload</code></pre>
+
+  <h2>Diagnóstico</h2>
+
+<pre><code>.venv\Scripts\python.exe docs\verificar-chave.py
+.venv\Scripts\python.exe docs\envelhecer-lead.py --listar</code></pre>
+
+  <h2>Rodar os testes</h2>
+
+<pre><code>.venv\Scripts\python.exe -m pytest ai-core/tests ai-memory-rag/tests -q
+.venv\Scripts\python.exe backend\tests\test_smoke.py
+
+cd frontend
+npm test
+npm run test:e2e        <span class="cmt"># exige o backend no ar</span>
+npm run test:contrato   <span class="cmt"># exige o backend no ar</span></code></pre>
+
+  <h2>Recomeçar do zero</h2>
+
+<pre><code><span class="cmt"># pare o backend antes</span>
+Remove-Item "D:\Projects\Pos\Fase 05\Tech-Challenge-FIAP-FASE5\backend\data\app.db"</code></pre>
+</section>
+
+<!-- ====================== APÊNDICE C ====================== -->
+<section>
+  <h1><span class="numero">Apêndice C</span>Roteiro de cinco minutos</h1>
+
+  <p>Para quem tem pouco tempo na banca, nesta ordem. Ele mostra o investidor,
+  que é o perfil em que este projeto mais se diferencia.</p>
+
+  <table>
+    <thead><tr><th style="width:14%">Minuto</th><th>O que fazer, e o que apontar</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>1</strong></td>
+        <td>Abra o chat. Mostre o cabeçalho com o selo verde e o aviso de
+        transparência abaixo da caixa de consentimento. <strong>Marque a
+        caixa.</strong></td>
+      </tr>
+      <tr>
+        <td><strong>2</strong></td>
+        <td>Mande <code>quero investir em imóveis para alugar</code>. Mostre a
+        etiqueta de intenção aparecendo como <strong>investimento</strong>,
+        apesar da palavra “alugar” na frase. Responda ticket e retorno
+        naturalmente.</td>
+      </tr>
+      <tr>
+        <td><strong>3</strong></td>
+        <td>Complete região, urgência e telefone. Mostre que ele
+        <strong>nunca</strong> perguntou quantos quartos, e que o seletor
+        apareceu falando em <strong>especialista</strong>, não em visita.
+        Confirme o agendamento.</td>
+      </tr>
+      <tr>
+        <td><strong>4</strong></td>
+        <td>Vá ao Dashboard. Mostre o lead como <span class="t-quente">QUENTE</span>,
+        abra a ficha e percorra os fatores da nota um a um. Mostre a próxima
+        ação recomendada.</td>
+      </tr>
+      <tr>
+        <td><strong>5</strong></td>
+        <td>Volte ao chat, abra <strong>Meus dados</strong>, clique em
+        <strong>Baixar</strong> e abra o JSON. Diga o limite em voz alta: “o
+        mapa de apelidos fica no mesmo banco, então isso protege contra o
+        Google, não contra quem tem o banco”.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="chave">
+    <span class="rotulo">Se a cota tiver acabado no dia</span>
+    <p>Não cancele a demonstração. O sistema roda inteiro em modo mock, com o
+    selo âmbar avisando, e o roteiro acima funciona igual: as etiquetas, o
+    painel, os imóveis, o score, o agendamento e a LGPD não dependem do Gemini.
+    O que muda é a redação das respostas. Dizer isso à banca, antes que
+    perguntem, demonstra a tolerância a falhas em vez de escondê-la.</p>
+  </div>
+
+  <div class="fim">
+    <p>Agente SDR Imobiliário, Tech Challenge FIAP, Fase 5. Este manual
+    acompanha o repositório do projeto, e os documentos
+    <code>docs/roteiro-de-teste-manual.md</code> (conferência item a item) e
+    <code>docs/privacidade-e-limites.md</code> (o que sai do sistema, e até onde
+    a proteção vai) aprofundam o que aqui está resumido.</p>
+  </div>
+</section>

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agente SDR Imobiliário</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=Karla:wght@400;500;600;700&display=swap"
+    />
+
+    <script>
+      // Tema aplicado antes da primeira pintura. Sem isto o app abre claro e
+      // pisca para o escuro quando o React monta, o que é justamente o defeito
+      // que mais aparece em demo com projetor.
+      //
+      // Padrão escuro: sem escolha guardada, o app nasce escuro. Quem escolher
+      // "sistema" cai no `prefers-color-scheme` do CSS, que é o caso em que
+      // nenhum atributo fica no <html>.
+      (function () {
+        try {
+          var escolha = localStorage.getItem("sdr-tema");
+          if (escolha === "claro") document.documentElement.dataset.theme = "light";
+          else if (escolha === "sistema") delete document.documentElement.dataset.theme;
+          else document.documentElement.dataset.theme = "dark";
+        } catch (erro) {
+          document.documentElement.dataset.theme = "dark";
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

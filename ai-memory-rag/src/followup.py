@@ -31,6 +31,8 @@ IDIOMA: identificadores, nomes de campo e valores de enum estão em inglês.
 Prompts, moldes e toda mensagem que o lead lê ficam em português.
 """
 
+from datetime import datetime
+
 import lead_profile
 from lead_profile import is_known
 from llm import get_client
@@ -43,6 +45,42 @@ from privacy import Pseudonymizer
 # é o teto de tentativas.
 DEFAULT_CADENCE = (24, 72, 168)
 URGENT_CADENCE = (4, 24, 72)
+
+# Janela em que é aceitável procurar alguém sobre imóvel.
+#
+# A cadência só media HORAS DE SILÊNCIO, e o job acorda a cada 30 minutos: um
+# lead urgente que escrevia às 22h40 e sumia recebia "Oi! Continuo de olho em
+# opções de 2 quartos em Botafogo pra você" às 02h40. Nenhuma imobiliária faz
+# isso, e para o lead é motivo de bloquear o contato, não de responder.
+#
+# Domingo fica de fora: é o dia em que a mensagem tem menos chance de ser
+# lida como atendimento e mais chance de ser lida como spam.
+HORA_INICIAL = 9
+HORA_FINAL = 20
+DIAS_SEM_CONTATO = (6,)  # 6 = domingo, na contagem do `weekday()`
+
+
+def dentro_do_horario(agora=None):
+    """Diz se dá para procurar o lead agora, e por quê não quando não dá.
+
+    Quem chama isto é o JOB que dispara, não o `evaluate_followup`. A distinção
+    importa: `leads_due_for_followup` também alimenta a seção "Precisam de
+    atenção" do painel, e essa lista precisa continuar mostrando quem está
+    devendo resposta mesmo às 22h. O que a janela adia é o ENVIO, não a
+    constatação de que o lead está esfriando.
+    """
+    agora = agora or datetime.now()
+
+    if agora.weekday() in DIAS_SEM_CONTATO:
+        return False, "domingo: follow-up adiado para segunda"
+
+    if agora.hour < HORA_INICIAL:
+        return False, "fora do horário (antes das %dh)" % HORA_INICIAL
+
+    if agora.hour >= HORA_FINAL:
+        return False, "fora do horário (depois das %dh)" % HORA_FINAL
+
+    return True, ""
 
 TONES = ("reopen", "offer", "signoff")
 
@@ -124,7 +162,7 @@ def evaluate_followup(memory, lead_id, require_consent=True):
     silence = memory.hours_of_silence(lead_id)
     sent = state.get("followups_sent", 0)
 
-    if not state["messages"]:
+    if not state.get("messages"):
         return FollowUpDecision(False, "lead sem conversa iniciada")
 
     if detect_opt_out(memory, lead_id):
@@ -172,7 +210,16 @@ def leads_due_for_followup(memory, require_consent=True):
     due = []
 
     for lead_id in memory.leads():
-        decision = evaluate_followup(memory, lead_id, require_consent)
+        # Um lead por vez, isolado. O docstring de `evaluate_followup` promete
+        # nunca levantar exceção, e a promessa não se sustenta sozinha: um
+        # `estado_json` gravado por uma versão anterior, sem a chave
+        # `messages`, derrubava a varredura INTEIRA com KeyError, e o corretor
+        # perdia a lista de todos os leads por causa de um registro ruim.
+        try:
+            decision = evaluate_followup(memory, lead_id, require_consent)
+        except Exception as erro:
+            print("[followup] %s ignorado: %s" % (lead_id, erro))
+            continue
         if decision.send:
             due.append((lead_id, decision))
 

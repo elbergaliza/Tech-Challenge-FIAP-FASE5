@@ -231,6 +231,69 @@ def parse_percentage(text):
 _INTENT_TO_DEAL_TYPE = {"BUY": "SALE", "RENT": "RENTAL", "INVEST": "SALE"}
 
 
+# Os tipos em que se mora. Tudo menos sala comercial.
+TIPOS_RESIDENCIAIS = ("APARTMENT", "PENTHOUSE", "HOUSE", "STUDIO")
+
+# Palavra que o lead escreve -> tipo na base.
+#
+# "sala" e "loja" ficam de FORA de proposito: quem escreve "sala" quase sempre
+# quer dizer sala de estar, nao sala comercial. Comercial so entra quando o
+# lead diz "comercial" ou "escritorio", que nao tem outra leitura.
+#
+# A ordem importa: "cobertura" antes de "apartamento" porque uma cobertura
+# tambem e descrita como apartamento, e o mais especifico tem que vencer.
+TIPOS_POR_PALAVRA = (
+    ("cobertura", "PENTHOUSE"),
+    ("kitnet", "STUDIO"),
+    ("quitinete", "STUDIO"),
+    ("conjugado", "STUDIO"),
+    ("studio", "STUDIO"),
+    ("estúdio", "STUDIO"),
+    ("estudio", "STUDIO"),
+    ("comercial", "COMMERCIAL"),
+    ("escritório", "COMMERCIAL"),
+    ("escritorio", "COMMERCIAL"),
+    ("sobrado", "HOUSE"),
+    ("casa", "HOUSE"),
+    ("apartamento", "APARTMENT"),
+    ("apto", "APARTMENT"),
+)
+
+
+def tipo_de_imovel_no_texto(texto):
+    """O tipo que o lead nomeou, ou None."""
+    baixo = (texto or "").lower()
+    for palavra, tipo in TIPOS_POR_PALAVRA:
+        if palavra in baixo:
+            return tipo
+
+    return None
+
+
+def _tipo_de_imovel(data):
+    """O tipo pedido, a familia residencial, ou None.
+
+    O `Filters` sempre teve o campo `property_type`, e ninguem o preenchia. O
+    efeito aparecia no ultimo degrau da escada de relaxamento: quem pediu 2
+    quartos para MORAR recebia "Sala comercial de 0 quartos em Meier" e
+    "Studio de 0 quartos na Lapa", porque a base tem 9 salas comerciais e nada
+    as excluia.
+
+    A regra e conservadora: filtra por um tipo so quando o lead nomeou o tipo.
+    Quando ele nao nomeou mas falou em QUARTOS, o filtro vira "o que serve
+    para morar", que e o minimo que impede o constrangimento acima sem
+    adivinhar nada.
+    """
+    dito = data.get("property_type")
+    if lead_profile.is_known(dito):
+        return str(dito).upper()
+
+    if lead_profile.is_known(data.get("bedrooms")):
+        return TIPOS_RESIDENCIAIS
+
+    return None
+
+
 def filters_from_profile(profile, expected_return=None, radius_km=None):
     """Converte um perfil de lead em Filters.
 
@@ -244,14 +307,43 @@ def filters_from_profile(profile, expected_return=None, radius_km=None):
     deal_type = _INTENT_TO_DEAL_TYPE.get(intent)
 
     min_price, max_price = parse_price_range(data.get("price_range"))
+
+    # Para quem investe, o dinheiro esta no TICKET, nao no orcamento: o ticket
+    # e quanto ele tem para pagar por um imovel, entao ele e o teto.
+    #
+    # Sem isto, o investidor de 800 mil recebia casa de 6,5 milhoes em Leblon,
+    # porque o filtro de preco ficava vazio e sobrava so a ordenacao por
+    # rentabilidade, que naturalmente favorece imovel caro. Sugerir o que o
+    # lead nao pode comprar nao e ambicao, e nao ter entendido o lead.
+    if not max_price and lead_profile.is_known(data.get("investor_ticket")):
+        _, teto = parse_price_range(data["investor_ticket"])
+        if teto:
+            max_price = teto
+
     neighborhood, zone = schema.resolve_region(data.get("region"))
 
     # Perfil investidor: o retorno esperado vira piso de rentabilidade. Se o
     # lead não disse um número, nenhum piso é aplicado, então a ordenação ainda
     # favorece imóveis rentáveis sem descartar estoque.
     min_yield = None
-    if intent == "INVEST" and expected_return:
-        min_yield = parse_percentage(expected_return)
+    if intent == "INVEST":
+        # O retorno pode vir solto (compatibilidade) ou do proprio perfil,
+        # onde ele passou a ser guardado.
+        bruto = expected_return or data.get("expected_return")
+        if lead_profile.is_known(bruto):
+            min_yield = parse_percentage(bruto)
+
+            # Quase ninguem responde "8% ao ano": o lead diz quanto quer
+            # receber por mes. Com o ticket em maos, esse numero VIRA um piso
+            # de rentabilidade: 2 mil por mes sobre 800 mil e 3% ao ano.
+            #
+            # Sem esta conta, o dado que o agente perguntou com tanto empenho
+            # nao filtrava nada, e a lista voltava ordenada so por afinidade de
+            # texto, ignorando o objetivo declarado do investidor.
+            if min_yield is None and max_price:
+                _, mensal = parse_price_range(bruto)
+                if mensal:
+                    min_yield = (mensal * 12.0) / max_price * 100.0
 
     filters = Filters(
         deal_type=deal_type,
@@ -261,6 +353,7 @@ def filters_from_profile(profile, expected_return=None, radius_km=None):
         neighborhood=neighborhood,
         zone=zone,
         min_yield=min_yield,
+        property_type=_tipo_de_imovel(data),
     )
 
     if radius_km and neighborhood and neighborhood in schema.NEIGHBORHOODS:
@@ -299,8 +392,15 @@ def _matches(prop, filters):
     if filters.deal_type and prop.get("deal_type") != filters.deal_type:
         return False
 
-    if filters.property_type and prop.get("property_type") != filters.property_type:
-        return False
+    if filters.property_type:
+        # Aceita um tipo ("HOUSE") ou uma colecao ("o que serve para morar").
+        # A colecao e o que permite excluir sala comercial sem ter que
+        # adivinhar qual dos quatro tipos residenciais o lead queria.
+        aceitos = (filters.property_type
+                   if isinstance(filters.property_type, (tuple, list, set, frozenset))
+                   else (filters.property_type,))
+        if prop.get("property_type") not in aceitos:
+            return False
 
     price = prop.get("price") or 0
     if filters.min_price is not None and price < filters.min_price:
@@ -524,7 +624,13 @@ def _score(prop, similarity, original, distance=None, radius_reference=None):
         if surplus > 0:
             score += BONUS_MAX_YIELD * min(1.0, surplus / 2.0)
         reasons.append("rentabilidade de %.1f%% ao ano" % yield_pct)
-    elif yield_pct is not None and original.deal_type == "SALE":
+    elif (yield_pct is not None and original.deal_type == "SALE"
+          and original.min_yield is not None):
+        # `min_yield` so e preenchido quando a intencao e INVEST, entao ele e o
+        # que diz que este lead E investidor. Sem essa condicao, a familia que
+        # ia MORAR no imovel recebia "rentabilidade estimada de 5,7% ao ano" em
+        # toda opcao de venda, o que soa deslocado e puxa a conversa para um
+        # assunto que ninguem levantou.
         reasons.append("rentabilidade estimada de %.1f%% ao ano" % yield_pct)
 
     return score, reasons

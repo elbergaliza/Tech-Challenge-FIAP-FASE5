@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.vite/
+*.local
+
+# O .gitignore da raiz e um template de Python e ignora `lib/`. Aqui `src/lib`
+# e codigo do front (formatar.ts, tema.ts): sem esta reinclusao, os dois
+# arquivos nunca entram no commit e o build quebra para o resto do grupo com
+# "Cannot find module '../lib/formatar'".
+!src/lib/

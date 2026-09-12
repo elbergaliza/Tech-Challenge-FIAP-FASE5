@@ -27,7 +27,23 @@ class SqlAlchemyStore:
     def read(self, lead_id):
         with self.session_factory() as db:
             linha = db.get(EstadoConversa, lead_id)
-            return json.loads(linha.estado_json) if linha else None
+            if not linha:
+                return None
+
+            try:
+                return json.loads(linha.estado_json)
+            except (ValueError, TypeError) as erro:
+                # Estado ilegivel e tratado como lead NOVO, nao como erro fatal.
+                #
+                # Sem isto, um unico registro corrompido (edicao manual, um
+                # `docs/envelhecer-lead.py` interrompido no meio, um estado
+                # gravado por uma versao anterior) rebentava a leitura e
+                # derrubava junto o /dashboard/followups INTEIRO, para todos os
+                # leads. Perder a memoria de UM lead e ruim; perder a tela e
+                # pior.
+                print("[memoria] estado_json ilegivel em %s, tratando como "
+                      "novo: %s" % (lead_id, erro))
+                return None
 
     def write(self, lead_id, state):
         payload = json.dumps(state, ensure_ascii=False)

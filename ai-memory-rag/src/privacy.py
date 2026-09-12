@@ -64,6 +64,12 @@ PATTERNS = (
 
 _ALIAS = re.compile(r"\[([A-Z]+)_(\d+)\]")
 
+# Apelido usado como vocativo, junto da pontuacao que o acompanha. Serve para
+# remover "[NOME_1]" sem deixar "Entendido, !" na tela quando o apelido nao
+# tem valor real no mapa.
+_VOCATIVO_DEPOIS = re.compile(r"[ \t]*,[ \t]*\[[A-Z]+_\d+\]")
+_VOCATIVO_ANTES = re.compile(r"\[[A-Z]+_\d+\][ \t]*,[ \t]*")
+
 # Nomes muito curtos não são mascarados: o risco de trocar "Ana" dentro de
 # "Ananindeua" é real, mas o risco maior é mascarar partículas de duas letras e
 # picotar o texto inteiro.
@@ -211,7 +217,21 @@ class Pseudonymizer:
         for alias, value in (mapping or {}).items():
             result = result.replace(alias, value)
 
-        return _ALIAS.sub("", result)
+        # Apelido sem valor real vira NADA, e o "nada" deixava cicatriz: o
+        # modelo escrevia "Entendido, [NOME_1]!" antes de a pessoa se
+        # apresentar, e o lead lia "Entendido, !". Tirar o apelido junto com a
+        # pontuacao que so existia por causa dele e o que faz a frase continuar
+        # uma frase.
+        #
+        # As tres formas que aparecem na pratica: vocativo depois de virgula
+        # ("Certo, [NOME_1]!"), vocativo antes ("[NOME_1], entendi") e o
+        # apelido sozinho no meio.
+        result = _VOCATIVO_DEPOIS.sub("", result)
+        result = _VOCATIVO_ANTES.sub("", result)
+        result = _ALIAS.sub("", result)
+
+        # Sobra de espaco duplo depois da remocao.
+        return re.sub(r"[ 	]{2,}", " ", result).strip()
 
 
 # ---------------------------------------------------------------------------

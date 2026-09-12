@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
+import followup                                                          # noqa: E402
 import llm                                                               # noqa: E402
 from llm import StubClient, UnavailableClient, extract_json              # noqa: E402
 from memory.conversation_memory import ConversationMemory, InMemoryStore  # noqa: E402
@@ -78,7 +79,6 @@ class TestTransientDetection(unittest.TestCase):
         for texto in [
             "503 UNAVAILABLE. This model is currently experiencing high demand",
             "500 INTERNAL",
-            "429 RESOURCE_EXHAUSTED",
             "The model is overloaded. Please try again later.",
         ]:
             self.assertTrue(llm.is_transient(RuntimeError(texto)), texto)
@@ -620,3 +620,78 @@ class TestExtractJson(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestQuotaNaoERetentavel(unittest.TestCase):
+    """429 nao e transitorio, e a exclusao e deliberada.
+
+    A janela de cota por minuto do Gemini so reabre em ate 60 segundos, e a
+    cadencia de retentativa aqui e de 1s e 3s. Retentar gastava TRES
+    requisicoes da cota diaria de 20 para chegar ao mesmo desfecho da primeira
+    tentativa: o turno caindo no mock. Numa tarde de testes isso sozinho
+    consumia a cota do dia em um terco do tempo.
+    """
+
+    def test_429_por_minuto_nao_e_retentado(self):
+        self.assertFalse(llm.is_transient(
+            RuntimeError("429 RESOURCE_EXHAUSTED ... quota_id: PerMinute")))
+
+    def test_429_por_dia_tambem_nao(self):
+        self.assertFalse(llm.is_transient(
+            RuntimeError("429 RESOURCE_EXHAUSTED ... PerDay")))
+
+    def test_uma_so_chamada_quando_a_cota_estoura(self):
+        chamadas = []
+
+        def estoura():
+            chamadas.append(1)
+            raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+        with self.assertRaises(RuntimeError):
+            llm.retry_transient(estoura, sleep=lambda _: None)
+
+        self.assertEqual(len(chamadas), 1,
+                         "cota estourada nao deve consumir mais cota tentando de novo")
+
+    def test_503_continua_sendo_retentado(self):
+        chamadas = []
+
+        def instavel():
+            chamadas.append(1)
+            if len(chamadas) < 3:
+                raise RuntimeError("503 UNAVAILABLE high demand")
+            return "ok"
+
+        self.assertEqual(llm.retry_transient(instavel, sleep=lambda _: None), "ok")
+        self.assertEqual(len(chamadas), 3)
+
+
+class TestJanelaDeHorario(unittest.TestCase):
+    """Follow-up de madrugada e de domingo."""
+
+    def test_madrugada_nao(self):
+        pode, motivo = followup.dentro_do_horario(datetime(2026, 9, 8, 2, 40))
+        self.assertFalse(pode)
+        self.assertIn("antes das", motivo)
+
+    def test_depois_das_vinte_nao(self):
+        pode, _ = followup.dentro_do_horario(datetime(2026, 9, 8, 21, 10))
+        self.assertFalse(pode)
+
+    def test_domingo_nao(self):
+        # 2026-09-13 e um domingo.
+        pode, motivo = followup.dentro_do_horario(datetime(2026, 9, 13, 15, 0))
+        self.assertFalse(pode)
+        self.assertIn("domingo", motivo)
+
+    def test_terca_a_tarde_pode(self):
+        pode, motivo = followup.dentro_do_horario(datetime(2026, 9, 8, 15, 0))
+        self.assertTrue(pode)
+        self.assertEqual(motivo, "")
+
+    def test_a_decisao_em_si_nao_olha_a_hora(self):
+        # A janela vale para o ENVIO. A lista "Precisam de atencao" do painel
+        # precisa continuar mostrando quem esta devendo resposta as 22h.
+        import inspect
+        fonte = inspect.getsource(followup.evaluate_followup)
+        self.assertNotIn("dentro_do_horario", fonte)

@@ -53,7 +53,9 @@ def responder(db, lead: Lead, mensagem: str) -> dict:
         "temperatura": lead.temperatura,
         "temperatura_label": card.get("temperature_label", lead.temperatura),
         "perfil": resultado.get("perfil") or {},
-        "novidades": resultado.get("novidades") or [],
+        "perfil_label": lead_service.rotulos_do_perfil(resultado.get("perfil") or {}),
+        "perfil_campos": lead_service.nomes_dos_campos(resultado.get("perfil") or {}),
+        "novidades": lead_service.rotular_novidades(resultado.get("novidades")),
         "imoveis": resultado.get("imoveis") or [],
         "proxima_acao": lead.proxima_acao,
         "origem": resultado.get("origem", "mock"),
@@ -86,3 +88,36 @@ def historico(db, lead_id: str, limite: int = 200) -> list[Mensagem]:
         .limit(limite)
         .all()
     )
+
+
+def estado_da_conversa(lead: Lead, mensagens: list) -> dict:
+    """O estado da tela para uma conversa REABERTA.
+
+    Espelha o que o `responder` devolve, sem chamar a IA: a memoria ja tem o
+    perfil gravado, e reabrir uma conversa nao pode custar uma requisicao de
+    cota nem alguns segundos de espera.
+
+    O perfil vem da memoria da Parte 2, e nao das colunas do lead, por um
+    motivo concreto: a tabela `leads` guarda intencao, regiao, faixa de preco,
+    quartos e urgencia, e NAO guarda `investor_ticket` nem `expected_return`.
+    Remontar o painel dali deixaria o investidor com metade do perfil em
+    branco, que e justamente o perfil em que este projeto se diferencia.
+    """
+    perfil = ai_service.perfil(lead.id)
+
+    return {
+        "mensagens": mensagens,
+        "status": lead.status,
+        "score": lead.score,
+        "temperatura": lead.temperatura,
+        "temperatura_label": ai_service.rotulo_da_temperatura(lead.temperatura),
+        "perfil": perfil,
+        "perfil_label": lead_service.rotulos_do_perfil(perfil),
+        "perfil_campos": lead_service.nomes_dos_campos(perfil),
+        "proxima_acao": lead.proxima_acao,
+        # O seletor de data reabre sozinho quando o perfil ja esta completo, do
+        # mesmo jeito que reabriria no turno seguinte. Sem isto, quem recarrega
+        # a pagina no meio do agendamento perde o seletor e nao tem como
+        # trazer de volta a nao ser mandando outra mensagem.
+        "sugerir_agendamento": ai_service.perfil_completo(perfil),
+    }

@@ -9,7 +9,7 @@
 # `intencao_label`). O front nao deveria precisar carregar uma tabela de traducao
 # para desenhar um badge, e o `lead_profile.py` ja e o dono dessas tabelas.
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from models.lead import Intencao, StatusLead, Urgencia
@@ -19,10 +19,23 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # traducao. Import com fallback: o backend precisa subir mesmo se a Parte 2 nao
 # estiver no lugar, senao um erro de checkout derruba a API inteira.
 try:
-    from lead_profile import INTENT_LABELS, URGENCY_LABELS
+    from lead_profile import FIELD_LABELS, INTENT_LABELS, URGENCY_LABELS
+    from rag.schema import PROPERTY_TYPE_LABELS
 except ImportError:  # pragma: no cover
     INTENT_LABELS = {"BUY": "compra", "RENT": "aluguel", "INVEST": "investimento"}
     URGENCY_LABELS = {"high": "alta", "medium": "média", "low": "baixa"}
+    PROPERTY_TYPE_LABELS = {
+        "APARTMENT": "Apartamento", "PENTHOUSE": "Cobertura", "HOUSE": "Casa",
+        "STUDIO": "Studio", "COMMERCIAL": "Sala comercial",
+    }
+    FIELD_LABELS = {
+        "name": "Nome", "intent": "Intenção", "price_range": "Faixa de preço",
+        "region": "Região", "bedrooms": "Quartos", "urgency": "Urgência",
+        "email": "E-mail", "phone": "Telefone",
+        "property_type": "Tipo de imóvel",
+        "investor_ticket": "Ticket de investimento",
+        "expected_return": "Retorno esperado",
+    }
 
 TEMPERATURE_LABELS = {"HOT": "QUENTE", "WARM": "MORNO", "COLD": "FRIO"}
 
@@ -96,6 +109,8 @@ class LeadResumo(BaseModel):
     # Campos calculados: rotulos e contagens que a lista mostra.
     intencao_label: str | None = None
     urgencia_label: str | None = None
+    # "8.55k" e formato de comparar, nao de ler. Aqui vai "R$ 8.550".
+    faixa_preco_label: str | None = None
     temperatura_label: str | None = None
     status_label: str | None = None
     total_mensagens: int = 0
@@ -111,6 +126,32 @@ class MensagemOut(BaseModel):
     origem: str | None
     criado_em: datetime
     imoveis: list[str] = Field(default_factory=list)
+
+
+class HistoricoSaida(BaseModel):
+    """O que o front precisa para redesenhar uma conversa reaberta.
+
+    Antes esta rota devolvia so a lista de mensagens, e o efeito aparecia no
+    cenario 2 do desafio: depois do F5 a conversa voltava inteira, mas o painel
+    "O que ja entendi" voltava VAZIO, dizendo "manda a primeira mensagem". O
+    sistema lembrava de tudo e a tela nao mostrava, ate a pessoa mandar mais uma
+    mensagem, que e justamente a prova que o cenario pede.
+
+    Os campos abaixo sao os mesmos do `ChatSaida`, montados pelos mesmos
+    construtores: o front reaproveita o codigo que ja tinha para desenhar o
+    painel, sem um segundo formato para manter em sincronia.
+    """
+
+    mensagens: list[MensagemOut] = Field(default_factory=list)
+    status: str
+    score: int
+    temperatura: str
+    temperatura_label: str
+    perfil: dict[str, Any] = Field(default_factory=dict)
+    perfil_label: dict[str, str] = Field(default_factory=dict)
+    perfil_campos: dict[str, str] = Field(default_factory=dict)
+    proxima_acao: str | None = None
+    sugerir_agendamento: bool = False
 
 
 class LeadDetalhe(LeadResumo):
@@ -166,6 +207,14 @@ class ChatSaida(BaseModel):
     temperatura: str
     temperatura_label: str
     perfil: dict[str, Any] = Field(default_factory=dict)
+    # O mesmo perfil, pronto para LER: "aluguel" em vez de "RENT", "alta" em
+    # vez de "high", "R$ 8.550" em vez de "8.55k". O cru continua acima para
+    # quem precisa comparar; a tela usa este.
+    perfil_label: dict[str, str] = Field(default_factory=dict)
+    # O nome de exibição de cada campo ("intent" -> "Intenção"), da mesma
+    # tabela que a Parte 2 usa. Vai junto para o front não manter a própria
+    # lista, que era o que estava acontecendo e já tinha divergido.
+    perfil_campos: dict[str, str] = Field(default_factory=dict)
     # O que a memoria aprendeu NESTE turno. O front usa para piscar "anotei:
     # 3 quartos" na tela, que e a prova visual de que ha memoria.
     novidades: list[dict[str, Any]] = Field(default_factory=list)
@@ -218,12 +267,42 @@ class ImoveisPagina(BaseModel):
 # Agendamento
 # ---------------------------------------------------------------------------
 
+# Um pouco de folga para tras, e ela nao e capricho: o cliente manda a hora que
+# ele escolheu no seletor, e entre escolher e clicar em Confirmar passam alguns
+# segundos. Recusar por trinta segundos de atraso seria recusar um agendamento
+# legitimo e deixar a pessoa sem entender o motivo.
+TOLERANCIA_PARA_TRAS = timedelta(minutes=5)
+
+
+def _recusar_passado(quando: datetime | None) -> datetime | None:
+    """Visita no passado nao e agendamento, e um dado errado no banco.
+
+    O seletor da tela ja tem `min`, mas validacao de front e conveniencia, nao
+    garantia: qualquer POST direto na API passava, e o backend respondia 201. O
+    lead saia da conversa achando que tinha visita marcada para o mes anterior,
+    e o corretor via a visita no passado na agenda.
+    """
+    if quando is None:
+        return None
+
+    # O DTO aceita data com e sem fuso. Comparar os dois jeitos levanta
+    # TypeError, entao a referencia e escolhida conforme o que chegou.
+    agora = datetime.now(quando.tzinfo) if quando.tzinfo else datetime.now()
+
+    if quando < agora - TOLERANCIA_PARA_TRAS:
+        raise ValueError("A data escolhida ja passou. Escolha um horario futuro.")
+
+    return quando
+
+
 class AgendamentoCriar(BaseModel):
     data_hora: datetime
     tipo: Literal["VISITA", "REUNIAO", "CONSULTORIA"] = "VISITA"
     imovel_id: str | None = None
     corretor: str | None = None
     observacoes: str | None = None
+
+    _no_futuro = field_validator("data_hora")(_recusar_passado)
 
 
 class AgendamentoAtualizar(BaseModel):
@@ -233,6 +312,10 @@ class AgendamentoAtualizar(BaseModel):
     imovel_id: str | None = None
     corretor: str | None = None
     observacoes: str | None = None
+
+    # Remarcar tambem e para o futuro. O corretor que registra uma visita ja
+    # realizada muda o STATUS, nao a data.
+    _no_futuro = field_validator("data_hora")(_recusar_passado)
 
 
 class AgendamentoOut(BaseModel):

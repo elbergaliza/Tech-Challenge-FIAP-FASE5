@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Agente SDR Imobiliário, manual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Karla:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* ---------------------------------------------------------------------------
+   Manual do Agente SDR Imobiliário.
+
+   Diagramado para A4 e impresso pelo Chrome. As fontes são as mesmas do
+   produto (Bricolage Grotesque no display, Karla no texto), porque um manual
+   que usa a tipografia do sistema que documenta se lê como parte dele.
+
+   A paleta é a do tema claro do "Calçadão", trazida para papel: o mesmo verde
+   de acento, sobre fundo branco. Documento escuro fica bonito na tela e é
+   ruim impresso, e este aqui vai ser as duas coisas.
+--------------------------------------------------------------------------- */
+
+@page {
+  size: A4;
+  margin: 19mm 17mm 17mm;
+}
+
+:root {
+  --tinta:      #10201d;
+  --tinta-fraca:#4a5f5b;
+  --suave:      #6b807b;
+  --linha:      #d9e2df;
+  --linha-fina: #eaf0ee;
+  --papel:      #ffffff;
+  --areia:      #f4f8f6;
+  --acento:     #0d7a6b;
+  --acento-forte:#095d52;
+  --acento-luz: #e3f3ef;
+  --quente:     #c0472f;
+  --morno:      #b07d12;
+  --frio:       #2a6ea8;
+  --atencao-borda: #e8c26a;
+  --atencao-fundo: #fdf6e4;
+}
+
+* { box-sizing: border-box; }
+
+html { font-size: 10.5pt; }
+
+body {
+  margin: 0;
+  font-family: Karla, "Segoe UI", system-ui, sans-serif;
+  color: var(--tinta);
+  background: var(--papel);
+  line-height: 1.58;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* --- títulos ------------------------------------------------------------ */
+
+h1, h2, h3, h4 {
+  font-family: "Bricolage Grotesque", Karla, sans-serif;
+  color: var(--tinta);
+  line-height: 1.14;
+  text-wrap: balance;
+  margin: 0;
+}
+
+h1 {
+  font-size: 25pt;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  break-before: page;
+  margin: 0 0 1.2em;
+  padding-bottom: 0.32em;
+  border-bottom: 2.5px solid var(--acento);
+}
+
+h1 .numero {
+  display: block;
+  font-family: Karla, sans-serif;
+  font-size: 9.5pt;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--acento);
+  margin-bottom: 0.5em;
+}
+
+h2 {
+  font-size: 14.5pt;
+  font-weight: 700;
+  margin: 1.9em 0 0.6em;
+  break-after: avoid;
+}
+
+h3 {
+  font-size: 11.5pt;
+  font-weight: 700;
+  margin: 1.5em 0 0.45em;
+  break-after: avoid;
+}
+
+h4 {
+  font-size: 10.5pt;
+  font-weight: 700;
+  color: var(--tinta-fraca);
+  margin: 1.2em 0 0.35em;
+  break-after: avoid;
+}
+
+p { margin: 0 0 0.85em; }
+p + h2, ul + h2, table + h2, figure + h2 { margin-top: 1.7em; }
+
+strong { font-weight: 700; }
+em { font-style: italic; }
+
+a { color: var(--acento-forte); text-decoration: none; }
+
+/* --- listas ------------------------------------------------------------- */
+
+ul, ol { margin: 0 0 0.9em; padding-left: 1.15em; }
+li { margin-bottom: 0.3em; }
+li::marker { color: var(--acento); }
+
+ul.checklist { list-style: none; padding-left: 0; }
+ul.checklist li {
+  position: relative;
+  padding-left: 1.6em;
+  margin-bottom: 0.42em;
+  break-inside: avoid;
+}
+ul.checklist li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.26em;
+  width: 0.92em;
+  height: 0.92em;
+  border: 1.6px solid var(--acento);
+  border-radius: 3px;
+}
+
+/* --- tabelas ------------------------------------------------------------ */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.7em 0 1.2em;
+  font-size: 9.4pt;
+  break-inside: auto;
+}
+thead { display: table-header-group; }
+tr { break-inside: avoid; }
+
+th {
+  text-align: left;
+  font-family: Karla, sans-serif;
+  font-weight: 700;
+  font-size: 8.2pt;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--acento-forte);
+  background: var(--acento-luz);
+  padding: 0.5em 0.7em;
+  border-bottom: 1.5px solid var(--acento);
+}
+
+td {
+  padding: 0.45em 0.7em;
+  border-bottom: 1px solid var(--linha-fina);
+  vertical-align: top;
+}
+
+tbody tr:nth-child(even) td { background: var(--areia); }
+
+td code, th code { font-size: 8.6pt; }
+
+/* --- código ------------------------------------------------------------- */
+
+code {
+  font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  font-size: 0.88em;
+  background: var(--areia);
+  border: 1px solid var(--linha-fina);
+  border-radius: 3px;
+  padding: 0.08em 0.32em;
+  color: var(--acento-forte);
+  word-break: break-word;
+}
+
+pre {
+  font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  font-size: 8.5pt;
+  line-height: 1.55;
+  background: #0f1f1c;
+  color: #d8e8e3;
+  border-radius: 6px;
+  padding: 0.85em 1em;
+  margin: 0.6em 0 1.1em;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  break-inside: avoid;
+}
+pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+pre .cmt { color: #7d9c95; }
+pre .ok  { color: #5fd3b2; }
+pre .war { color: #e6c069; }
+
+/* --- caixas de destaque ------------------------------------------------- */
+
+.nota, .atencao, .chave {
+  border-radius: 6px;
+  padding: 0.8em 1em 0.85em;
+  margin: 1em 0 1.2em;
+  break-inside: avoid;
+  font-size: 9.7pt;
+}
+.nota p:last-child, .atencao p:last-child, .chave p:last-child { margin-bottom: 0; }
+
+.nota {
+  background: var(--acento-luz);
+  border-left: 3.5px solid var(--acento);
+}
+.atencao {
+  background: var(--atencao-fundo);
+  border-left: 3.5px solid var(--atencao-borda);
+}
+.chave {
+  background: #0f1f1c;
+  color: #e6f2ee;
+  border-left: 3.5px solid var(--acento);
+}
+.chave strong { color: #7fe3c6; }
+
+.rotulo {
+  display: block;
+  font-family: Karla, sans-serif;
+  font-size: 7.8pt;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--acento-forte);
+  margin-bottom: 0.35em;
+}
+.atencao .rotulo { color: #8a6510; }
+.chave .rotulo { color: #7fe3c6; }
+
+/* --- figuras ------------------------------------------------------------ */
+
+figure {
+  margin: 1.1em 0 1.4em;
+  break-inside: avoid;
+}
+figure img {
+  width: 100%;
+  display: block;
+  border: 1px solid var(--linha);
+  border-radius: 5px;
+}
+figure.recorte img { border-radius: 4px; }
+figcaption {
+  font-size: 8.6pt;
+  color: var(--suave);
+  margin-top: 0.45em;
+  line-height: 1.4;
+}
+figcaption b {
+  color: var(--acento-forte);
+  font-weight: 700;
+}
+
+/* --- capa --------------------------------------------------------------- */
+
+.capa {
+  height: 253mm;
+  display: flex;
+  flex-direction: column;
+  break-after: page;
+}
+.capa .marca {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  font-family: "Bricolage Grotesque", sans-serif;
+  font-weight: 800;
+  font-size: 12pt;
+}
+.capa .selo {
+  width: 2.6em;
+  height: 2.6em;
+  display: grid;
+  place-items: center;
+  background: var(--acento);
+  color: #fff;
+  border-radius: 9px;
+  font-size: 10pt;
+  letter-spacing: 0.02em;
+}
+.capa .meio { margin-top: auto; }
+.capa h1 {
+  break-before: auto;
+  border: none;
+  font-size: 40pt;
+  line-height: 1.03;
+  letter-spacing: -0.03em;
+  margin: 0 0 0.25em;
+  padding: 0;
+}
+.capa .sub {
+  font-size: 14pt;
+  color: var(--tinta-fraca);
+  font-weight: 500;
+  margin: 0 0 2.2em;
+  max-width: 30ch;
+}
+.capa .regua {
+  height: 5px;
+  width: 120px;
+  background: var(--acento);
+  border-radius: 3px;
+  margin-bottom: 2.2em;
+}
+.capa .ficha {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.1em 2em;
+  font-size: 9.6pt;
+  padding-top: 1.4em;
+  border-top: 1px solid var(--linha);
+}
+.capa .ficha dt {
+  font-size: 7.8pt;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--suave);
+  margin-bottom: 0.15em;
+}
+.capa .ficha dd { margin: 0; font-weight: 600; }
+
+/* --- sumário ------------------------------------------------------------ */
+
+.sumario { break-after: page; }
+.sumario h1 { break-before: auto; }
+.sumario ol {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 10pt;
+}
+.sumario li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+  padding: 0.42em 0;
+  border-bottom: 1px solid var(--linha-fina);
+}
+.sumario .n {
+  font-family: "Bricolage Grotesque", sans-serif;
+  font-weight: 700;
+  color: var(--acento);
+  min-width: 1.8em;
+}
+.sumario .t { font-weight: 600; }
+.sumario .d { color: var(--suave); font-size: 9pt; }
+
+/* --- miscelânea --------------------------------------------------------- */
+
+.duas { columns: 2; column-gap: 1.6em; }
+.duas > * { break-inside: avoid; }
+
+.passo {
+  counter-reset: none;
+  padding-left: 0;
+  list-style: none;
+  counter-reset: passo;
+}
+.passo > li {
+  position: relative;
+  padding-left: 2.1em;
+  margin-bottom: 0.7em;
+  counter-increment: passo;
+  break-inside: avoid;
+}
+.passo > li::before {
+  content: counter(passo);
+  position: absolute;
+  left: 0;
+  top: 0.08em;
+  width: 1.5em;
+  height: 1.5em;
+  display: grid;
+  place-items: center;
+  background: var(--acento);
+  color: #fff;
+  border-radius: 50%;
+  font-family: "Bricolage Grotesque", sans-serif;
+  font-size: 8.4pt;
+  font-weight: 700;
+}
+
+.t-quente { color: var(--quente); font-weight: 700; }
+.t-morno  { color: var(--morno);  font-weight: 700; }
+.t-frio   { color: var(--frio);   font-weight: 700; }
+
+.fim {
+  margin-top: 2.4em;
+  padding-top: 1.1em;
+  border-top: 1px solid var(--linha);
+  font-size: 9pt;
+  color: var(--suave);
+}
+</style>
+</head>
+<body>
+
+<!-- ====================== CAPA ====================== -->
+<section class="capa">
+  <div class="marca">
+    <span class="selo">SDR</span>
+    <span>Agente SDR Imobiliário</span>
+  </div>
+
+  <div class="meio">
+    <div class="regua"></div>
+    <h1>Manual do sistema</h1>
+    <p class="sub">Instalação, operação e o que observar durante a avaliação</p>
+
+    <dl class="ficha">
+      <div><dt>Projeto</dt><dd>Tech Challenge FIAP, Fase 5</dd></div>
+      <div><dt>Documento</dt><dd>Versão 1.0</dd></div>
+      <div><dt>Escopo</dt><dd>Agente de IA, memória e RAG, API e interface</dd></div>
+      <div><dt>Ambiente</dt><dd>Windows, Python 3.11+, Node 20+</dd></div>
+    </dl>
+  </div>
+</section>
+
+<!-- ====================== COMO LER ====================== -->
+<section>
+  <h1><span class="numero">Antes de tudo</span>Como ler este manual</h1>
+
+  <p>Este sistema conversa com pessoas usando um modelo de linguagem, e isso
+  tem uma consequência prática que precisa ficar clara antes de qualquer outra
+  coisa.</p>
+
+  <div class="chave">
+    <span class="rotulo">A regra que evita o falso defeito</span>
+    <p><strong>O texto que a IA escreve muda a cada execução. O comportamento
+    observável do sistema não muda.</strong></p>
+  </div>
+
+  <p>Se você mandar “quero comprar um apartamento” duas vezes, vai receber duas
+  redações diferentes da mesma pergunta. Uma hora ela pergunta “Qual região você
+  está procurando?”, outra hora “Em qual bairro você gostaria de morar?”. As
+  duas estão corretas, porque as duas perseguem o mesmo campo.</p>
+
+  <p>Por isso este manual <strong>não</strong> manda você digitar uma frase e
+  conferir se a resposta bateu palavra por palavra. Ele dá frases de partida,
+  deixa você conversar do seu jeito, e diz <strong>o que observar</strong>: qual
+  etiqueta apareceu, qual campo o painel preencheu, quando o seletor de data
+  surgiu, se os imóveis respeitaram o orçamento.</p>
+
+  <p>Quem tenta validar a redação da IA conclui que o sistema está quebrado.
+  Quem observa o comportamento vê que ele está funcionando. A seção 7 detalha
+  exatamente o que olhar.</p>
+
+  <h2>Caminho mais curto, se você só quer ver funcionando</h2>
+
+  <ol class="passo">
+    <li>Instale as dependências uma vez: <strong>seção 2</strong>.</li>
+    <li>Se quiser a IA de verdade, pegue a chave: <strong>seção 3</strong>.
+      Sem ela o sistema roda igual, com respostas mais robóticas.</li>
+    <li>Suba os dois terminais: <strong>seção 4</strong>.</li>
+    <li>Abra <code>http://localhost:5173</code> e converse: <strong>seção 7</strong>.</li>
+  </ol>
+
+  <p>O resto do manual existe para quando alguma coisa não fizer sentido, e para
+  quem vai avaliar e precisa saber o que procurar.</p>
+</section>
+
+<!-- ====================== SUMÁRIO ====================== -->
+<section class="sumario">
+  <h1><span class="numero">Conteúdo</span>Sumário</h1>
+  <ol>
+    <li><span class="n">1</span><span class="t">O que é este sistema</span></li>
+    <li><span class="n">2</span><span class="t">Antes de começar</span> <span class="d">o que instalar</span></li>
+    <li><span class="n">3</span><span class="t">A chave do Google Gemini</span> <span class="d">e como rodar sem ela</span></li>
+    <li><span class="n">4</span><span class="t">Subir o sistema</span> <span class="d">dois terminais</span></li>
+    <li><span class="n">5</span><span class="t">Conferir que está tudo no ar</span></li>
+    <li><span class="n">6</span><span class="t">A tela do Chat</span> <span class="d">o que cada elemento significa</span></li>
+    <li><span class="n">7</span><span class="t">Como conversar com o agente</span> <span class="d">frases de partida e o que observar</span></li>
+    <li><span class="n">8</span><span class="t">As telas do corretor</span></li>
+    <li><span class="n">9</span><span class="t">Privacidade, e o que dizer sobre ela</span></li>
+    <li><span class="n">10</span><span class="t">Os três cenários do desafio</span></li>
+    <li><span class="n">11</span><span class="t">Quando algo não funciona</span></li>
+    <li><span class="n">12</span><span class="t">Limites conhecidos</span></li>
+    <li><span class="n">A</span><span class="t">Ficha técnica</span></li>
+    <li><span class="n">B</span><span class="t">Comandos de referência</span></li>
+    <li><span class="n">C</span><span class="t">Roteiro de cinco minutos</span></li>
+  </ol>
+</section>
+</body>
+</html>

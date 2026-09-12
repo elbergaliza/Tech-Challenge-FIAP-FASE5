@@ -29,7 +29,23 @@ o código decide com `intent == "BUY"`, o agente escreve "compra".
 PROFILE_FIELDS = (
     "name", "intent", "price_range", "region", "bedrooms",
     "urgency", "email", "phone",
+    # Casa, apartamento, cobertura, studio ou sala comercial.
+    #
+    # NAO entra na ordem de coleta: o agente nunca pergunta o tipo, ele so
+    # aproveita quando o lead diz ("quero uma casa"). Perguntar seria mais uma
+    # rodada no funil para um dado que na maioria das conversas vem de graca.
+    # O que ele evita e a base oferecer sala comercial a quem vai morar.
+    "property_type",
+    # Perfil investidor. O desafio pede ticket e expectativa de retorno, e o
+    # agente ja pergunta os dois; sem lugar para guardar, a resposta ficava so
+    # na conversa e o corretor recebia um investidor sem os numeros que
+    # definem o negocio dele.
+    "investor_ticket", "expected_return",
 )
+
+# Campos que so fazem sentido para quem investe. Ficam fora da coleta de quem
+# procura para morar: perguntar "qual seu ticket" a um locatario e ruido.
+INVESTOR_FIELDS = ("investor_ticket", "expected_return")
 
 # Campos que carregam dado pessoal direto.
 PII_FIELDS = ("name", "email", "phone")
@@ -45,6 +61,7 @@ AGENT_FIELD_MAP = {
     "urgencia": "urgency",
     "email": "email",
     "telefone": "phone",
+    "tipo_imovel": "property_type",
 }
 
 AGENT_INTENTS = {
@@ -67,6 +84,8 @@ URGENCY_LABELS = {"high": "alta", "medium": "média", "low": "baixa"}
 
 FIELD_LABELS = {
     "name": "Nome",
+    "investor_ticket": "Ticket de investimento",
+    "expected_return": "Retorno esperado",
     "intent": "Intenção",
     "price_range": "Faixa de preço",
     "region": "Região",
@@ -74,6 +93,7 @@ FIELD_LABELS = {
     "urgency": "Urgência",
     "email": "E-mail",
     "phone": "Telefone",
+    "property_type": "Tipo de imóvel",
 }
 
 # Ordem em que um SDR persegue os campos, e é a ordem do fluxo do PDF do
@@ -85,6 +105,22 @@ FIELD_LABELS = {
 # perseguido, então nenhum dos dois pode ser contado como esquivado.
 COLLECTION_ORDER = ("intent", "region", "bedrooms", "price_range", "urgency", "phone")
 
+# A ordem de quem investe e outra, e nao e detalhe de apresentacao: quem
+# investe decide por ticket e retorno, nao por numero de quartos. Perguntar
+# quartos a um investidor, como o agente fazia, e a pergunta errada e queima a
+# credibilidade da conversa.
+INVESTOR_COLLECTION_ORDER = (
+    "intent", "investor_ticket", "expected_return", "region", "urgency", "phone",
+)
+
+
+def collection_order_for(profile):
+    """A lista de coleta deste lead, conforme a intencao dele."""
+    if (profile or {}).get("intent") == "INVEST":
+        return INVESTOR_COLLECTION_ORDER
+
+    return COLLECTION_ORDER
+
 
 def next_to_collect(profile):
     """O campo que o agente está perseguindo agora, ou None se já tem tudo.
@@ -94,7 +130,7 @@ def next_to_collect(profile):
     perguntado não pode contar como ignorado.
     """
     profile = profile or {}
-    for field in COLLECTION_ORDER:
+    for field in collection_order_for(profile):
         if not is_known(profile.get(field)):
             return field
 
@@ -141,6 +177,95 @@ def mentions_low_urgency(text):
     return any(cue in lowered for cue in LOW_URGENCY_CUES)
 
 
+# O lado espelhado do problema acima. A lista de pressa da Pessoa 1 tem oito
+# expressões ("urgente", "rápido", "logo", "já", "essa semana"...), e um lead
+# que diz "preciso mudar esse mês" ou "o quanto antes" não casa com nenhuma:
+# cai no default "baixa", que o guarda abaixo descarta, e a urgência fica
+# eternamente desconhecida. Na prática o agente perguntava o prazo, o lead
+# respondia, e o agente perguntava de novo.
+#
+# Mesma decisão do LOW: a defesa mora aqui, na camada anticorrupção, e não no
+# código da outra pessoa.
+HIGH_URGENCY_CUES = (
+    "esse mes", "esse mês", "este mes", "este mês", "ainda esse mes",
+    "ainda esse mês", "mes que vem", "mês que vem", "proxima semana",
+    "próxima semana", "proximas semanas", "próximas semanas",
+    "o quanto antes", "quanto antes", "para ontem", "pra ontem",
+    "com pressa", "estou com pressa", "imediato", "imediatamente",
+    "assim que possivel", "assim que possível", "preciso mudar",
+    "tenho que sair", "meu contrato acaba", "meu contrato vence",
+    "estou de mudanca", "estou de mudança",
+)
+
+
+# Só uma menção a MORAR desfaz uma intenção de investimento já registrada.
+MORAR_CUES = (
+    "morar", "moradia", "residir", "pra mim", "para mim", "pra minha",
+    "para minha", "minha familia", "minha família", "meu filho", "minha filha",
+    "sair do aluguel", "primeiro imovel", "primeiro imóvel",
+)
+
+
+def mentions_living_intent(text):
+    """O lead disse que o imóvel é para morar?"""
+    if not text:
+        return False
+
+    lowered = str(text).lower()
+    return any(cue in lowered for cue in MORAR_CUES)
+
+
+def substituicao_valida(field, previous, value, message=None):
+    """Vale trocar um valor JÁ CONHECIDO por este novo?
+
+    O perfil aceita correção de propósito: o lead que sobe o orçamento de 500k
+    para 800k é sinal de compra, e o corretor quer ver isso. Mas uma correção
+    às cegas tem um caso patológico.
+
+    Depois que o lead diz "quero investir em imóveis para alugar", a conversa
+    inteira fala em alugar. O agente pergunta se ele prefere "pronto para
+    alugar", ele responde "pronto para alugar", e a extração, que é sem estado,
+    lê ALUGUEL e rebaixa o investidor a locatário. O ticket vira orçamento, o
+    fluxo vai para visita em vez de consultoria com especialista, e o que o
+    lead disse no primeiro turno é perdido.
+
+    Para quem investe, "alugar" e "comprar" descrevem a OPERAÇÃO, não a
+    intenção. Só uma menção explícita a morar desfaz o investimento.
+    """
+    if field == "intent" and previous == "INVEST" and value in ("RENT", "BUY"):
+        return mentions_living_intent(message)
+
+    return True
+
+
+# A extração da Pessoa 1 aceita QUALQUER número antes de "quartos": "R$ 8.550
+# quartos" vira 550 quartos. E o perfil é monotônico, então o valor errado
+# entra e não sai mais, some com o campo verdadeiro e infla o score.
+#
+# O catálogo do projeto vai de 0 (kitnet) a 4. O teto aqui é folgado de
+# propósito: barra o absurdo sem discutir com quem procura casa grande.
+MAX_QUARTOS_PLAUSIVEL = 10
+
+
+def bedrooms_plausiveis(valor):
+    """O número de quartos cabe num imóvel de verdade?"""
+    try:
+        quantidade = int(str(valor).strip())
+    except (TypeError, ValueError):
+        return False
+
+    return 0 <= quantidade <= MAX_QUARTOS_PLAUSIVEL
+
+
+def mentions_high_urgency(text):
+    """O lead disse alguma coisa que sustente urgência alta?"""
+    if not text:
+        return False
+
+    lowered = str(text).lower()
+    return any(cue in lowered for cue in HIGH_URGENCY_CUES)
+
+
 # Literalmente o que a Pessoa 1 emite para um campo que não conseguiu extrair.
 AGENT_UNKNOWN = "undefined"
 
@@ -181,7 +306,12 @@ def from_agent(collected_data, message=None):
 
         value = raw_value
 
-        if key == "intent":
+        if key == "bedrooms":
+            # Ver `bedrooms_plausiveis`: sem isto, um valor de dinheiro que caiu
+            # no campo errado trava o perfil para sempre.
+            if not bedrooms_plausiveis(value):
+                continue
+        elif key == "intent":
             upper = str(value).upper()
             # Aceita tanto o enum em português da Pessoa 1 quanto o nosso.
             value = AGENT_INTENTS.get(upper, upper)
@@ -191,8 +321,14 @@ def from_agent(collected_data, message=None):
             # "baixa" sem nada na mensagem que a sustente é o default da
             # Pessoa 1, não informação. Deixar passar trava o campo para
             # sempre, porque o perfil é monotônico.
+            #
+            # Antes de descartar, vale olhar o contrário: a lista de pressa
+            # dela é curta, e "preciso mudar esse mês" chega aqui como "baixa"
+            # quando a mensagem diz exatamente o oposto.
             if value == "low" and message is not None:
-                if not mentions_low_urgency(message):
+                if mentions_high_urgency(message):
+                    value = "high"
+                elif not mentions_low_urgency(message):
                     continue
 
         profile[key] = value
@@ -213,6 +349,12 @@ def to_agent(profile):
 
     result = {}
     for field in PROFILE_FIELDS:
+        # Campo que nao existe no dialeto dela nao tem para onde ser
+        # traduzido. E o caso do perfil investidor, que e nosso: mandar uma
+        # chave que ela nao conhece nao ajuda ninguem e suja o dicionario.
+        if field not in reverse_fields:
+            continue
+
         value = (profile or {}).get(field)
 
         if not is_known(value):
@@ -235,6 +377,10 @@ def label(field, value):
         return INTENT_LABELS.get(value, value)
     if field == "urgency":
         return URGENCY_LABELS.get(value, value)
+    if field == "expected_return":
+        # Retorno vem como valor mensal em reais, e o sufixo evita a leitura
+        # errada de "2000" como percentual.
+        return "%s por mês" % value
 
     return value
 

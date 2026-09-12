@@ -49,6 +49,32 @@ SCORE_WEIGHTS = {
     "engagement": 10,
 }
 
+# Os dois campos que o score pontua por VALOR do negócio, conforme a intenção.
+#
+# `price_range` e `bedrooms` são exatamente os campos que o funil de
+# investimento decidiu NÃO perguntar, então um investidor que respondia tudo
+# perdia 25 dos 100 pontos por não ter informado o que ninguém lhe perguntou:
+# no teto ele chegava a 60 e nunca passava do limiar de QUENTE, que é 70. O
+# corretor via "MORNO" para o lead de R$ 2 milhões e "Ainda não informou:
+# quartos" logo abaixo.
+SCORE_FIELDS_BY_INTENT = {
+    "INVEST": ("intent", "investor_ticket", "region", "expected_return"),
+}
+SCORE_FIELDS_DEFAULT = ("intent", "price_range", "region", "bedrooms")
+
+
+def _score_fields(profile):
+    return SCORE_FIELDS_BY_INTENT.get((profile or {}).get("intent"),
+                                      SCORE_FIELDS_DEFAULT)
+
+
+# `investor_ticket` pesa como `price_range` e `expected_return` como
+# `bedrooms`: são os equivalentes em papel dentro de cada funil.
+_PESO_EQUIVALENTE = {
+    "investor_ticket": "price_range",
+    "expected_return": "bedrooms",
+}
+
 # Um lead que pontuou 80 e sumiu há um mês não está quente. A penalidade por
 # silêncio evita que o dashboard mande o corretor atrás de lead morto.
 SILENCE_PENALTIES = (
@@ -89,12 +115,12 @@ def compute_score(profile, lead_messages=0, hours_of_silence=0.0):
     factors = []
     score = 0
 
-    for field in ("intent", "price_range", "region", "bedrooms"):
+    for field in _score_fields(profile):
         if is_known(profile.get(field)):
-            score += SCORE_WEIGHTS[field]
+            peso = SCORE_WEIGHTS[_PESO_EQUIVALENTE.get(field, field)]
+            score += peso
             factors.append("+%d %s informado"
-                           % (SCORE_WEIGHTS[field],
-                              lead_profile.FIELD_LABELS[field].lower()))
+                           % (peso, lead_profile.FIELD_LABELS[field].lower()))
 
     if has_contact(profile):
         score += SCORE_WEIGHTS["contact"]
@@ -176,11 +202,22 @@ def suggest_next_action(profile, temperature, state):
         return "Ligar hoje e agendar visita"
 
     if temperature == "WARM":
+        # O que ainda falta descobrir depende da intencao: perguntar quartos a
+        # um investidor e a pergunta errada, e mandar o corretor atras disso e
+        # pior, porque ele repete o erro no telefone.
+        investidor = profile.get("intent") == "INVEST"
+        perseguir = (("investor_ticket", "expected_return", "region")
+                     if investidor else ("price_range", "region", "bedrooms"))
+
         missing = [lead_profile.FIELD_LABELS[f].lower()
-                   for f in ("price_range", "region", "bedrooms")
+                   for f in perseguir
                    if not is_known(profile.get(f))]
         if missing:
             return "Retomar para descobrir: " + ", ".join(missing)
+
+        if investidor:
+            return "Enviar oportunidades e propor conversa com o especialista"
+
         return "Enviar opções e propor visita"
 
     if state.get("followups_sent", 0) >= 3:
@@ -494,6 +531,20 @@ def _heuristic_interest(profile):
     verb = _INTENT_VERB.get(profile.get("intent"), "está procurando")
 
     parts = ["Lead %s imóvel" % verb]
+
+    # Quem investe é descrito por ticket e retorno. Antes o card do investidor
+    # de R$ 2 milhões saía como "Lead quer investir em imóvel em Copacabana na
+    # faixa de 12k", sem o ticket em lugar nenhum, e o corretor ligava sem
+    # saber o número que importa.
+    if profile.get("intent") == "INVEST":
+        if is_known(profile.get("region")):
+            parts.append("em %s" % profile["region"])
+        if is_known(profile.get("investor_ticket")):
+            parts.append("com ticket de %s" % profile["investor_ticket"])
+        if is_known(profile.get("expected_return")):
+            parts.append("buscando retorno de %s" % profile["expected_return"])
+        return " ".join(parts) + "."
+
     if is_known(profile.get("bedrooms")):
         parts.append("de %s quartos" % profile["bedrooms"])
     if is_known(profile.get("region")):
@@ -515,8 +566,10 @@ def _heuristic_summary(profile, state):
         interest = "%s %s" % (name, interest.replace("Lead ", "", 1))
     sentences.append(interest)
 
+    # A lista de pendências usa a MESMA regra do score, senão o card manda o
+    # corretor perguntar quantos quartos o investidor quer.
     missing = [lead_profile.FIELD_LABELS[f].lower()
-               for f in ("intent", "price_range", "region", "bedrooms")
+               for f in _score_fields(profile)
                if not is_known(profile.get(f))]
     if missing:
         sentences.append("Ainda não informou: %s." % ", ".join(missing))

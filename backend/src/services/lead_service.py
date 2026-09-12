@@ -4,12 +4,15 @@ from datetime import datetime, timezone
 
 import services.ai_service as ai_service
 from dto.schemas import (
-    INTENT_LABELS, STATUS_LABELS, TEMPERATURE_LABELS, URGENCY_LABELS,
+    FIELD_LABELS, INTENT_LABELS, PROPERTY_TYPE_LABELS, STATUS_LABELS,
+    TEMPERATURE_LABELS, URGENCY_LABELS,
     LeadResumo,
 )
 from models.conversa import Mensagem
 from models.lead import Lead, StatusLead, Temperatura
-from sqlalchemy import func, select
+import uuid
+
+from sqlalchemy import Integer, cast, func, select
 from sqlalchemy.exc import IntegrityError
 
 # Campo do perfil da Parte 2 -> coluna nossa. Os valores ja vem no dialeto
@@ -27,17 +30,29 @@ PERFIL_PARA_COLUNA = {
 }
 
 
-def novo_id(db) -> str:
-    # Gera "lead-0001", "lead-0002"...
-    #
-    # Sequencial e legivel em vez de UUID porque este id aparece na tela do
-    # corretor e na URL da demo. O formato respeita o `^[A-Za-z0-9_-]{1,64}$` que
-    # a memoria da Parte 2 exige.
-    #
-    # A corrida entre dois chats simultaneos e resolvida pelo retry do `criar`, e
-    # nao por lock: o custo de um id pulado num POC e zero.
-    total = db.scalar(select(func.count()).select_from(Lead)) or 0
-    return "lead-%04d" % (total + 1)
+def novo_id(db=None) -> str:
+    """Id de lead imprevisivel, no formato "lead-a3f1c8d902b45e17".
+
+    ERA sequencial ("lead-0001", "lead-0002"), legivel de proposito, e isso
+    transformava as rotas de LGPD num oraculo sobre a base inteira: nao ha
+    login, o id vem do proprio cliente, e trocar um digito na URL dava acesso a
+    EXPORTAR (`GET /leads/{id}/exportar`, que devolve nome, telefone, e-mail e
+    a conversa inteira) e a APAGAR (`DELETE /leads/{id}`) os dados de qualquer
+    outra pessoa. Adivinhar "lead-0003" nao e ataque: e digitacao.
+
+    Com 16 digitos hexadecimais o espaco e grande demais para chute, e o
+    formato continua respeitando o `^[A-Za-z0-9_-]{1,64}$` que a memoria da
+    Parte 2 exige. O prefixo "lead-" fica: e ele que torna o id reconhecivel
+    num log e numa tela de suporte.
+
+    Os ids antigos continuam validos: nada aqui invalida "lead-0001", e a demo
+    nao precisa de migracao de banco.
+
+    `db` deixou de ser usado, e o parametro fica por compatibilidade com quem
+    ja chama `novo_id(db)`. Sem consulta tambem nao ha mais a corrida entre
+    dois chats simultaneos que o retry do `criar` cobria.
+    """
+    return "lead-%s" % uuid.uuid4().hex[:16]
 
 
 def criar(db, dados=None, lead_id=None, origem="chat") -> Lead:
@@ -151,12 +166,137 @@ def _tem_contato_e_intencao(lead: Lead) -> bool:
     return bool(lead.intencao) and bool(lead.telefone or lead.email)
 
 
+# O sufixo compacto que a extracao produz, e quanto ele vale.
+#
+# "m" entrou junto com a correcao que fez "1 milhao" parar de virar R$ 1.000.
+# Sem ele aqui, o painel do investidor mostrava "Ticket de investimento: 2m",
+# que e o formato de COMPARAR vazando para a tela de LER.
+_ESCALAS_DO_PRECO = {"k": 1_000, "m": 1_000_000}
+
+
+def _um_valor_legivel(texto: str) -> str | None:
+    sufixo = texto[-1:].lower()
+    escala = _ESCALAS_DO_PRECO.get(sufixo)
+    if escala is None:
+        return None
+
+    try:
+        numero = float(texto[:-1].replace(",", ".")) * escala
+    except ValueError:
+        return None
+
+    # `format(..., ",d")` separa milhar com virgula (padrao ingles); a troca
+    # por ponto e o que faz virar 8.550 e nao 8,550.
+    return "R$ " + format(int(round(numero)), ",d").replace(",", ".")
+
+
+def _preco_legivel(valor: str) -> str:
+    # "8.55k" -> "R$ 8.550", "2m" -> "R$ 2.000.000", "500k-800k" -> a faixa
+    # inteira. A memoria normaliza preco nesse formato compacto, que serve para
+    # comparar e nao para ler: ninguem diz que o orcamento e "8.55k".
+    texto = str(valor).strip()
+
+    # Faixa: os dois extremos sao traduzidos e reunidos com "a", que e como se
+    # fala. "R$ 500.000-R$ 800.000" com hifen fica ilegivel.
+    if "-" in texto:
+        partes = [p.strip() for p in texto.split("-", 1)]
+        legiveis = [_um_valor_legivel(p) for p in partes]
+        if all(legiveis):
+            return "%s a %s" % (legiveis[0], legiveis[1])
+        return texto
+
+    return _um_valor_legivel(texto) or texto
+
+
+def valor_legivel(campo: str, valor) -> str:
+    # Um valor do perfil como ele deve aparecer na tela.
+    #
+    # Nao concatena o nome do campo ("3 quartos"): quem escreve o rotulo e a
+    # tela, e o painel ja tem a coluna "Quartos" do lado. Repetir ali sairia
+    # "Quartos: 3 quartos".
+    texto = str(valor)
+
+    if campo == "intent":
+        return INTENT_LABELS.get(texto, texto)
+    if campo == "urgency":
+        return URGENCY_LABELS.get(texto, texto)
+    if campo == "price_range":
+        return _preco_legivel(texto)
+    if campo in ("investor_ticket", "expected_return"):
+        # Ticket e retorno sao dinheiro como qualquer outro: "800k" na tela vira
+        # "R$ 800.000". Ficavam crus porque nasceram depois deste `if`.
+        return _preco_legivel(texto)
+    if campo == "property_type":
+        # Sem isto o painel mostrava "APARTMENT" para o lead, em ingles e em
+        # caixa alta, no meio de um painel todo em portugues.
+        return PROPERTY_TYPE_LABELS.get(texto, texto)
+
+    return texto
+
+
+# Como cada campo do perfil da IA aparece na tela. O valor cru continua no
+# `perfil`, para quem precisa comparar; isto e so a versao de LER.
+#
+# Mora aqui, e nao no front, pela mesma razao dos outros rotulos: as tabelas de
+# traducao ja sao daqui, e uma segunda copia do outro lado sai de sincronia na
+# primeira mudanca. Isso ja tinha acontecido: o front mantinha a propria lista
+# de nomes de campo, e ela ja divergia da FIELD_LABELS ("orcamento" contra
+# "Faixa de preco").
+def rotulos_do_perfil(perfil: dict) -> dict:
+    if not perfil:
+        return {}
+
+    return {
+        campo: valor_legivel(campo, valor)
+        for campo, valor in perfil.items()
+        if valor not in (None, "", "undefined")
+    }
+
+
+def nomes_dos_campos(perfil: dict) -> dict:
+    # O nome de exibicao de cada campo presente no perfil, da FIELD_LABELS da
+    # Parte 2, que e a dona dessa tabela.
+    if not perfil:
+        return {}
+
+    return {
+        campo: FIELD_LABELS.get(campo, campo.replace("_", " "))
+        for campo, valor in perfil.items()
+        if valor not in (None, "", "undefined")
+    }
+
+
+def rotular_novidades(novidades: list) -> list:
+    # Cada novidade ganha nome de campo e valores prontos para ler, sem perder
+    # os campos crus: o chip mostra "anotei: Quartos = 3", e quem precisa
+    # comparar continua com `field`, `from` e `to`.
+    rotuladas = []
+
+    for item in novidades or []:
+        item = dict(item)
+        campo = item.get("field", "")
+
+        item["field_label"] = FIELD_LABELS.get(campo, campo.replace("_", " "))
+        for lado in ("from", "to"):
+            valor = item.get(lado)
+            item["%s_label" % lado] = (
+                valor_legivel(campo, valor) if valor not in (None, "", "undefined") else None
+            )
+
+        rotuladas.append(item)
+
+    return rotuladas
+
+
 def para_dto(db, lead: Lead, com_contagens=True) -> LeadResumo:
     # Modelo -> dto, preenchendo rotulos e contagens.
     dto = LeadResumo.model_validate(lead)
 
     dto.intencao_label = INTENT_LABELS.get(lead.intencao or "")
     dto.urgencia_label = URGENCY_LABELS.get(lead.urgencia or "")
+    dto.faixa_preco_label = (
+        _preco_legivel(lead.faixa_preco) if lead.faixa_preco else None
+    )
     dto.temperatura_label = TEMPERATURE_LABELS.get(lead.temperatura, lead.temperatura)
     dto.status_label = STATUS_LABELS.get(lead.status, lead.status)
 
