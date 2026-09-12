@@ -242,3 +242,24 @@ export interface SaudeApi {
     detalhe: string;
   };
 }
+
+// O que a rota de historico devolve.
+//
+// Ela nao entrega so as mensagens: entrega o ESTADO da conversa, porque a
+// conversa sozinha nao remonta a tela. Depois de um F5 o painel "O que ja
+// entendi" voltava vazio, dizendo "manda a primeira mensagem" para quem tinha
+// uma conversa inteira atras. O sistema lembrava, e a tela desmentia.
+export type HistoricoApi = {
+  mensagens: Mensagem[];
+  status: string;
+  score: number;
+  // `Temperatura` e nao `string`: o painel colore a faixa por este valor, e um
+  // literal solto passaria batido aqui e quebraria a cor no navegador.
+  temperatura: Temperatura;
+  temperatura_label: string;
+  perfil: Record<string, string>;
+  perfil_label: Record<string, string>;
+  perfil_campos: Record<string, string>;
+  proxima_acao: string | null;
+  sugerir_agendamento: boolean;
+};

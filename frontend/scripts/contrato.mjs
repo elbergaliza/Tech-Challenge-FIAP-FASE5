@@ -244,14 +244,29 @@ async function main() {
   secao("GET /chat/{id}/historico");
   const historico = await pedir(`/chat/${encodeURIComponent(leadId)}/historico`);
   conferir("responde 200", historico.status === 200, `status ${historico.status}`);
+  const mensagens = historico.dados?.mensagens;
   conferir(
     "devolve as mensagens do turno",
-    Array.isArray(historico.dados) && historico.dados.length >= 2,
-    `veio ${historico.dados?.length} mensagem(ns)`,
+    Array.isArray(mensagens) && mensagens.length >= 2,
+    `veio ${mensagens?.length} mensagem(ns)`,
   );
 
-  if (Array.isArray(historico.dados) && historico.dados.length > 0) {
-    conferirCampos("mensagem do histórico", historico.dados[0], {
+  // A rota devolve o ESTADO da conversa, não só a lista: é o que permite o
+  // painel "O que já entendi" voltar preenchido depois de um F5, em vez de
+  // dizer "manda a primeira mensagem" para quem tem uma conversa inteira atrás.
+  conferirCampos("estado da conversa reaberta", historico.dados, {
+    status: "string",
+    score: "number",
+    temperatura: "string",
+    temperatura_label: "string",
+    perfil: "object",
+    perfil_label: "object",
+    perfil_campos: "object",
+    sugerir_agendamento: "boolean",
+  });
+
+  if (Array.isArray(mensagens) && mensagens.length > 0) {
+    conferirCampos("mensagem do histórico", mensagens[0], {
       id: "number",
       papel: "string",
       conteudo: "string",
@@ -260,17 +275,17 @@ async function main() {
     });
     conferir(
       "papel é user, assistant ou followup",
-      historico.dados.every((m) => ["user", "assistant", "followup"].includes(m.papel)),
-      JSON.stringify(historico.dados.map((m) => m.papel)),
+      mensagens.every((m) => ["user", "assistant", "followup"].includes(m.papel)),
+      JSON.stringify(mensagens.map((m) => m.papel)),
     );
-    conferirData("criado_em é ISO", historico.dados[0].criado_em);
+    conferirData("criado_em é ISO", mensagens[0].criado_em);
 
     // O front descarta novidades/imoveis ao reabrir a conversa porque esta
     // rota não os carrega. Se algum dia carregar, o Chat pode voltar a
     // reidratar os chips.
     conferir(
       "histórico não carrega novidades (o Chat conta com isso)",
-      !("novidades" in historico.dados[0]),
+      !("novidades" in mensagens[0]),
       "passou a carregar: dá para reidratar os chips ao reabrir",
     );
   }

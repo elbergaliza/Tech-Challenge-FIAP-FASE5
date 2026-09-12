@@ -1035,6 +1035,29 @@ def perfil(lead_id: str) -> dict:
     return estado["memory"].profile(lead_id)
 
 
+def perfil_completo(perfil: dict) -> bool:
+    """Se nao falta mais nenhum campo da ordem de coleta deste lead.
+
+    E o mesmo criterio que libera o seletor de data no turno normal. Existe
+    aqui para a conversa REABERTA chegar na tela no mesmo estado em que
+    parou: sem isto, quem recarregava a pagina no meio do agendamento perdia
+    o seletor e so o trazia de volta mandando outra mensagem.
+    """
+    if not PARTE2_OK:
+        return False
+
+    return lead_profile.next_to_collect(perfil or {}) is None
+
+
+def rotulo_da_temperatura(temperatura: str) -> str:
+    """"HOT" -> "QUENTE". A tabela e a mesma que o card do corretor usa."""
+    if not PARTE2_OK:
+        return temperatura
+
+    from summarizer import TEMPERATURE_LABELS
+    return TEMPERATURE_LABELS.get(temperatura, temperatura)
+
+
 def horas_de_silencio(lead_id: str) -> float:
     estado = _init()
     if not PARTE2_OK or not estado["memory"].exists(lead_id):

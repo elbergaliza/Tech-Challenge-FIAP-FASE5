@@ -296,6 +296,65 @@ describe("o que o payload do turno vira na tela", () => {
 });
 
 describe("reabrir a conversa", () => {
+  it("o painel do perfil volta preenchido, e não vazio", async () => {
+    // Antes o painel só era preenchido ao ENVIAR: depois de um F5 a conversa
+    // voltava inteira e o painel dizia "manda a primeira mensagem" para quem
+    // tinha uma conversa atrás. É justamente o cenário 2 do desafio, em que a
+    // memória precisa APARECER: o lead volta, e o sistema lembra dele.
+    localStorage.setItem("lead_id", "lead-0007");
+    mock.historico.mockResolvedValue({
+      mensagens: [
+        {
+          id: 1, papel: "user", conteudo: "quero investir",
+          origem: null, criado_em: "2026-09-07T16:00:00", imoveis: [],
+        },
+      ],
+      status: "QUALIFICADO",
+      score: 100,
+      temperatura: "HOT",
+      temperatura_label: "QUENTE",
+      perfil: { intent: "INVEST", investor_ticket: "2m" },
+      perfil_label: { intent: "investimento", investor_ticket: "R$ 2.000.000" },
+      perfil_campos: { intent: "Intenção", investor_ticket: "Ticket de investimento" },
+      proxima_acao: "Encaminhar para o especialista",
+      sugerir_agendamento: false,
+    });
+
+    render(<Chat />);
+
+    expect(await screen.findByText("Ticket de investimento")).toBeInTheDocument();
+    expect(screen.getByText("R$ 2.000.000")).toBeInTheDocument();
+    expect(screen.getByText("QUENTE")).toBeInTheDocument();
+    expect(screen.queryByText(/Manda a primeira mensagem/i)).toBeNull();
+  });
+
+  it("reabre o seletor de data quando o perfil já estava completo", async () => {
+    // Quem recarregava a página no meio do agendamento perdia o seletor e só
+    // o trazia de volta mandando outra mensagem.
+    localStorage.setItem("lead_id", "lead-0007");
+    mock.historico.mockResolvedValue({
+      mensagens: [
+        {
+          id: 1, papel: "user", conteudo: "quero alugar",
+          origem: null, criado_em: "2026-09-07T16:00:00", imoveis: [],
+        },
+      ],
+      status: "QUALIFICADO",
+      score: 100,
+      temperatura: "HOT",
+      temperatura_label: "QUENTE",
+      perfil: { intent: "RENT" },
+      perfil_label: { intent: "aluguel" },
+      perfil_campos: { intent: "Intenção" },
+      proxima_acao: null,
+      sugerir_agendamento: true,
+    });
+
+    render(<Chat />);
+
+    expect(await screen.findByText(/marcar sua visita/i)).toBeInTheDocument();
+  });
+
   it("carrega o histórico do lead guardado", async () => {
     localStorage.setItem("lead_id", "lead-0007");
     const historico: Mensagem[] = [
@@ -316,7 +375,18 @@ describe("reabrir a conversa", () => {
         imoveis: [],
       },
     ];
-    mock.historico.mockResolvedValue(historico);
+    mock.historico.mockResolvedValue({
+      mensagens: historico,
+      status: "QUALIFICADO",
+      score: 75,
+      temperatura: "HOT",
+      temperatura_label: "QUENTE",
+      perfil: { intent: "BUY", region: "Tijuca", bedrooms: "3" },
+      perfil_label: { intent: "compra", region: "Tijuca", bedrooms: "3" },
+      perfil_campos: { intent: "Intenção", region: "Região", bedrooms: "Quartos" },
+      proxima_acao: "Ligar hoje e agendar visita",
+      sugerir_agendamento: false,
+    });
 
     render(<Chat />);
 

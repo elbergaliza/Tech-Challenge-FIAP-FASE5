@@ -8,12 +8,12 @@ import type {
   ChatSaida,
   DashboardResumo,
   FollowUpPendente,
+  HistoricoApi,
   ImoveisFiltros,
   ImoveisPagina,
   Imovel,
   LeadDetalhe,
   LeadResumo,
-  Mensagem,
   SaudeApi,
   StatusAgendamento,
   StatusLead,
@@ -155,7 +155,7 @@ export const api = {
   }) => requisitar<ChatSaida>("/chat", { metodo: "POST", corpo: entrada }),
 
   historico: (leadId: string) =>
-    requisitar<Mensagem[]>(`/chat/${encodeURIComponent(leadId)}/historico`),
+    requisitar<HistoricoApi>(`/chat/${encodeURIComponent(leadId)}/historico`),
 
   // --- Leads ------------------------------------------------------------
   listarLeads: (filtros: {

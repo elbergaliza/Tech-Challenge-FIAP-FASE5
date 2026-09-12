@@ -91,7 +91,24 @@ def main():
         checar(r3["sugerir_agendamento"], "sugere agendamento com perfil completo")
 
         historico = cliente.get("/chat/%s/historico" % lead_id).json()
-        checar(len(historico) == 6, "historico com 6 mensagens (%d)" % len(historico))
+        checar(len(historico["mensagens"]) == 6,
+               "historico com 6 mensagens (%d)" % len(historico["mensagens"]))
+
+        # A rota devolve o ESTADO da conversa, e nao so as mensagens. Sem isto o
+        # painel "O que ja entendi" voltava VAZIO depois de um F5, dizendo
+        # "manda a primeira mensagem" para quem tinha a conversa inteira atras:
+        # o sistema lembrava e a tela desmentia, justamente no cenario 2 do
+        # desafio.
+        checar(historico["perfil"].get("region") == "Copacabana",
+               "e o perfil volta junto, para o painel se redesenhar")
+        checar(historico["perfil_label"].get("intent") == "compra",
+               "com os rotulos ja em portugues")
+        checar(historico["perfil_campos"].get("region") == "Região",
+               "e com o nome de exibicao de cada campo")
+        checar(historico["sugerir_agendamento"] is True,
+               "e o seletor de data reabre se o perfil ja estava completo")
+        checar(historico["score"] > 0 and historico["temperatura_label"] != "",
+               "score e temperatura vem juntos, sem gastar cota")
 
         print("\n[3] Memoria entre turnos")
         # A prova de que ha memoria: o perfil do turno 3 ainda sabe o que foi

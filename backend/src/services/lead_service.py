@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 import services.ai_service as ai_service
 from dto.schemas import (
-    FIELD_LABELS, INTENT_LABELS, STATUS_LABELS, TEMPERATURE_LABELS,
-    URGENCY_LABELS,
+    FIELD_LABELS, INTENT_LABELS, PROPERTY_TYPE_LABELS, STATUS_LABELS,
+    TEMPERATURE_LABELS, URGENCY_LABELS,
     LeadResumo,
 )
 from models.conversa import Mensagem
@@ -166,22 +166,46 @@ def _tem_contato_e_intencao(lead: Lead) -> bool:
     return bool(lead.intencao) and bool(lead.telefone or lead.email)
 
 
-def _preco_legivel(valor: str) -> str:
-    # "8.55k" -> "R$ 8.550". A memoria normaliza faixa de preco nesse formato
-    # compacto, que serve para comparar e nao para ler: ninguem diz que o
-    # orcamento e "8.55k".
-    texto = str(valor).strip()
-    if not texto.lower().endswith("k"):
-        return texto
+# O sufixo compacto que a extracao produz, e quanto ele vale.
+#
+# "m" entrou junto com a correcao que fez "1 milhao" parar de virar R$ 1.000.
+# Sem ele aqui, o painel do investidor mostrava "Ticket de investimento: 2m",
+# que e o formato de COMPARAR vazando para a tela de LER.
+_ESCALAS_DO_PRECO = {"k": 1_000, "m": 1_000_000}
+
+
+def _um_valor_legivel(texto: str) -> str | None:
+    sufixo = texto[-1:].lower()
+    escala = _ESCALAS_DO_PRECO.get(sufixo)
+    if escala is None:
+        return None
 
     try:
-        numero = float(texto[:-1].replace(",", ".")) * 1000
+        numero = float(texto[:-1].replace(",", ".")) * escala
     except ValueError:
-        return texto
+        return None
 
     # `format(..., ",d")` separa milhar com virgula (padrao ingles); a troca
     # por ponto e o que faz virar 8.550 e nao 8,550.
     return "R$ " + format(int(round(numero)), ",d").replace(",", ".")
+
+
+def _preco_legivel(valor: str) -> str:
+    # "8.55k" -> "R$ 8.550", "2m" -> "R$ 2.000.000", "500k-800k" -> a faixa
+    # inteira. A memoria normaliza preco nesse formato compacto, que serve para
+    # comparar e nao para ler: ninguem diz que o orcamento e "8.55k".
+    texto = str(valor).strip()
+
+    # Faixa: os dois extremos sao traduzidos e reunidos com "a", que e como se
+    # fala. "R$ 500.000-R$ 800.000" com hifen fica ilegivel.
+    if "-" in texto:
+        partes = [p.strip() for p in texto.split("-", 1)]
+        legiveis = [_um_valor_legivel(p) for p in partes]
+        if all(legiveis):
+            return "%s a %s" % (legiveis[0], legiveis[1])
+        return texto
+
+    return _um_valor_legivel(texto) or texto
 
 
 def valor_legivel(campo: str, valor) -> str:
@@ -198,6 +222,14 @@ def valor_legivel(campo: str, valor) -> str:
         return URGENCY_LABELS.get(texto, texto)
     if campo == "price_range":
         return _preco_legivel(texto)
+    if campo in ("investor_ticket", "expected_return"):
+        # Ticket e retorno sao dinheiro como qualquer outro: "800k" na tela vira
+        # "R$ 800.000". Ficavam crus porque nasceram depois deste `if`.
+        return _preco_legivel(texto)
+    if campo == "property_type":
+        # Sem isto o painel mostrava "APARTMENT" para o lead, em ingles e em
+        # caixa alta, no meio de um painel todo em portugues.
+        return PROPERTY_TYPE_LABELS.get(texto, texto)
 
     return texto
 

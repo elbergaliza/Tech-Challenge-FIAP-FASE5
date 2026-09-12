@@ -20,13 +20,21 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # estiver no lugar, senao um erro de checkout derruba a API inteira.
 try:
     from lead_profile import FIELD_LABELS, INTENT_LABELS, URGENCY_LABELS
+    from rag.schema import PROPERTY_TYPE_LABELS
 except ImportError:  # pragma: no cover
     INTENT_LABELS = {"BUY": "compra", "RENT": "aluguel", "INVEST": "investimento"}
     URGENCY_LABELS = {"high": "alta", "medium": "média", "low": "baixa"}
+    PROPERTY_TYPE_LABELS = {
+        "APARTMENT": "Apartamento", "PENTHOUSE": "Cobertura", "HOUSE": "Casa",
+        "STUDIO": "Studio", "COMMERCIAL": "Sala comercial",
+    }
     FIELD_LABELS = {
         "name": "Nome", "intent": "Intenção", "price_range": "Faixa de preço",
         "region": "Região", "bedrooms": "Quartos", "urgency": "Urgência",
         "email": "E-mail", "phone": "Telefone",
+        "property_type": "Tipo de imóvel",
+        "investor_ticket": "Ticket de investimento",
+        "expected_return": "Retorno esperado",
     }
 
 TEMPERATURE_LABELS = {"HOT": "QUENTE", "WARM": "MORNO", "COLD": "FRIO"}
@@ -118,6 +126,32 @@ class MensagemOut(BaseModel):
     origem: str | None
     criado_em: datetime
     imoveis: list[str] = Field(default_factory=list)
+
+
+class HistoricoSaida(BaseModel):
+    """O que o front precisa para redesenhar uma conversa reaberta.
+
+    Antes esta rota devolvia so a lista de mensagens, e o efeito aparecia no
+    cenario 2 do desafio: depois do F5 a conversa voltava inteira, mas o painel
+    "O que ja entendi" voltava VAZIO, dizendo "manda a primeira mensagem". O
+    sistema lembrava de tudo e a tela nao mostrava, ate a pessoa mandar mais uma
+    mensagem, que e justamente a prova que o cenario pede.
+
+    Os campos abaixo sao os mesmos do `ChatSaida`, montados pelos mesmos
+    construtores: o front reaproveita o codigo que ja tinha para desenhar o
+    painel, sem um segundo formato para manter em sincronia.
+    """
+
+    mensagens: list[MensagemOut] = Field(default_factory=list)
+    status: str
+    score: int
+    temperatura: str
+    temperatura_label: str
+    perfil: dict[str, Any] = Field(default_factory=dict)
+    perfil_label: dict[str, str] = Field(default_factory=dict)
+    perfil_campos: dict[str, str] = Field(default_factory=dict)
+    proxima_acao: str | None = None
+    sugerir_agendamento: bool = False
 
 
 class LeadDetalhe(LeadResumo):

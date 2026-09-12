@@ -93,16 +93,40 @@ export default function Chat() {
     let vivo = true;
     api
       .historico(leadId)
-      .then((mensagens) => {
+      .then((historico) => {
         if (!vivo) return;
         setTurnos(
-          mensagens.map((m) => ({
+          historico.mensagens.map((m) => ({
             chave: `hist-${m.id}`,
             papel: m.papel,
             conteudo: m.conteudo,
             origem: m.origem,
           })),
         );
+
+        // O painel do perfil volta junto com a conversa.
+        //
+        // Antes ele só era preenchido ao ENVIAR, então depois de um F5 a
+        // conversa voltava inteira e o painel dizia "manda a primeira
+        // mensagem". É justamente o cenário em que a memória precisa
+        // aparecer: o lead volta, e o sistema lembra dele.
+        setEstado({
+          status: historico.status,
+          score: historico.score,
+          temperatura: historico.temperatura,
+          temperatura_label: historico.temperatura_label,
+          perfil: historico.perfil,
+          perfil_label: historico.perfil_label,
+          perfil_campos: historico.perfil_campos,
+          proxima_acao: historico.proxima_acao,
+          sugerir_agendamento: historico.sugerir_agendamento,
+        });
+
+        // E o seletor de data reabre se o perfil já estava completo, para quem
+        // recarregou no meio do agendamento não ficar sem ele.
+        if (historico.sugerir_agendamento && !dispensouAgenda.current) {
+          setAbrirAgenda(true);
+        }
       })
       .catch((falha: unknown) => {
         if (!vivo) return;

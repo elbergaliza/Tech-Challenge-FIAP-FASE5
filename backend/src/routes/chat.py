@@ -10,7 +10,7 @@ import services.ai_service as ai_service
 import services.chat_service as chat_service
 import services.lead_service as lead_service
 from database.db import get_db
-from dto.schemas import ChatEntrada, ChatSaida, MensagemOut
+from dto.schemas import ChatEntrada, ChatSaida, HistoricoSaida, MensagemOut
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -40,15 +40,23 @@ def conversar(entrada: ChatEntrada, db: Session = Depends(get_db)):
     return chat_service.responder(db, lead, entrada.mensagem)
 
 
-@router.get("/{lead_id}/historico", response_model=list[MensagemOut],
-            summary="Historico de mensagens do lead")
+@router.get("/{lead_id}/historico", response_model=HistoricoSaida,
+            summary="Historico e perfil do lead, para reabrir a conversa")
 def historico(lead_id: str, limite: int = Query(200, ge=1, le=1000),
               db: Session = Depends(get_db)):
-    # Usado quando o front reabre uma conversa: repopula a tela.
-    if not lead_service.obter(db, lead_id):
+    # Usado quando o front reabre uma conversa: repopula a tela INTEIRA.
+    #
+    # Devolve o perfil junto das mensagens porque a conversa sozinha nao
+    # remonta a tela: o painel "O que ja entendi" ficava vazio depois do F5,
+    # dizendo "manda a primeira mensagem" para quem tinha uma conversa inteira
+    # atras. O sistema lembrava, e a tela desmentia.
+    lead = lead_service.obter(db, lead_id)
+    if not lead:
         raise HTTPException(404, "Lead nao encontrado.")
 
-    return [
+    mensagens = [
         MensagemOut.model_validate(m).model_copy(update={"imoveis": m.imoveis})
         for m in chat_service.historico(db, lead_id, limite)
     ]
+
+    return chat_service.estado_da_conversa(lead, mensagens)
