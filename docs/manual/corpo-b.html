@@ -1,0 +1,317 @@
+<!-- ====================== 4 ====================== -->
+<section>
+  <h1><span class="numero">Seção 4</span>Subir o sistema</h1>
+
+  <p>O sistema precisa de <strong>dois terminais abertos ao mesmo
+  tempo</strong>. Um roda a API, outro roda a interface. Os dois ficam ocupados
+  enquanto o sistema estiver no ar.</p>
+
+  <h2>4.1 Terminal 1: o backend</h2>
+
+<pre><code>cd "D:\Projects\Pos\Fase 05\Tech-Challenge-FIAP-FASE5"
+.venv\Scripts\python.exe backend\run.py</code></pre>
+
+  <p>Quando dá certo, você vê algo próximo disto:</p>
+
+<pre><code>INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started server process [33756]
+INFO:     Application startup complete.
+[followup] Ativo, a cada 30 min.
+[api] Pronta. Docs em /docs
+[rag] 140 imoveis indexados (gemini-embedding-001, cache).</code></pre>
+
+  <p>A última linha aparece alguns segundos depois das outras, porque o índice
+  de busca é construído numa thread separada para não atrasar a subida da API.
+  Três variações normais nela:</p>
+
+  <table>
+    <thead><tr><th style="width:30%">O que aparece</th><th>O que significa</th></tr></thead>
+    <tbody>
+      <tr><td><code>(cache)</code></td><td>O índice veio do disco, sem custo. É o caso comum</td></tr>
+      <tr><td><code>(rebuild)</code></td><td>Ele foi construído agora. Acontece na primeira execução e ao trocar de modelo de embedding</td></tr>
+      <tr><td><code>hashing-v1</code></td><td>Você está sem chave, e a busca usa o modo lexical. Funciona, com resultados um pouco menos precisos</td></tr>
+    </tbody>
+  </table>
+
+  <h2>4.2 Terminal 2: o frontend</h2>
+
+  <p>Abra um <strong>segundo</strong> PowerShell, sem fechar o primeiro.</p>
+
+<pre><code>cd "D:\Projects\Pos\Fase 05\Tech-Challenge-FIAP-FASE5\frontend"
+npm run dev</code></pre>
+
+  <p>Quando dá certo:</p>
+
+<pre><code>  VITE v7.3.6  ready in 412 ms
+
+  <span class="ok">-&gt;</span>  Local:   http://localhost:5173/
+  <span class="ok">-&gt;</span>  Network: use --host to expose</code></pre>
+
+  <h2>4.3 Os três endereços</h2>
+
+  <table>
+    <thead><tr><th style="width:40%">Endereço</th><th>O que é</th></tr></thead>
+    <tbody>
+      <tr><td><code>localhost:5173</code></td><td>A aplicação. É aqui que você trabalha</td></tr>
+      <tr><td><code>localhost:8000/docs</code></td><td>Documentação interativa da API, gerada pelo FastAPI</td></tr>
+      <tr><td><code>localhost:8000/health</code></td><td>Diagnóstico em JSON do que está ligado</td></tr>
+    </tbody>
+  </table>
+
+  <p>O <code>/docs</code> vale uma visita durante a avaliação: ele lista todas
+  as rotas e deixa executar cada uma pelo navegador, sem precisar de ferramenta
+  externa.</p>
+
+  <figure>
+    <img src="img/03-docs.png" alt="Documentação interativa da API">
+    <figcaption><b>Figura 2.</b> A documentação interativa em
+    <code>/docs</code>, com as rotas agrupadas por assunto. Cada uma abre e
+    pode ser executada ali mesmo.</figcaption>
+  </figure>
+
+  <h2>4.4 Se a porta 5173 estiver ocupada</h2>
+
+  <p>O Vite recusa subir se a porta já estiver em uso, e a mensagem é clara:
+  <code>Error: Port 5173 is already in use</code>. Quase sempre isso significa
+  que existe outro <code>npm run dev</code> rodando, de uma sessão anterior que
+  não foi fechada. Duas saídas:</p>
+
+<pre><code><span class="cmt"># usar a outra porta ja liberada no CORS</span>
+npm run dev:3000</code></pre>
+
+  <p>ou encerrar o processo antigo:</p>
+
+<pre><code>Get-NetTCPConnection -LocalPort 5173 |
+  Select-Object -ExpandProperty OwningProcess |
+  ForEach-Object { Stop-Process -Id $_ -Force }</code></pre>
+
+  <div class="atencao">
+    <span class="rotulo">Só 5173 e 3000 estão liberadas</span>
+    <p>Essas são as duas portas no CORS do backend. Qualquer outra precisa ser
+    acrescentada em <code>CORS_ORIGINS</code> no <code>.env</code> da raiz, e
+    sem isso toda chamada morre com um erro que não parece ser de porta.</p>
+  </div>
+
+  <h2>4.5 No dia da apresentação, use <code>--no-reload</code></h2>
+
+<pre><code>.venv\Scripts\python.exe backend\run.py --no-reload</code></pre>
+
+  <p>O autoreload é ótimo enquanto se escreve código: ele reinicia a API sozinho
+  a cada arquivo salvo. Na hora de apresentar ele atrapalha, por dois motivos.
+  Primeiro, salvar um arquivo sem querer reinicia o backend no meio de uma frase
+  do agente. Segundo, cada reinício paga uma consulta de sondagem ao serviço de
+  embedding antes de responder a primeira mensagem.</p>
+</section>
+
+<!-- ====================== 5 ====================== -->
+<section>
+  <h1><span class="numero">Seção 5</span>Conferir que está tudo no ar</h1>
+
+  <h2>5.1 O cabeçalho, que é o painel de instrumentos</h2>
+
+  <p>O canto direito do cabeçalho carrega o estado do sistema, e ele se atualiza
+  sozinho: a cada minuto quando está tudo bem, a cada dez segundos quando a API
+  está fora. Você não precisa recarregar a página para ver o estado mudar.</p>
+
+  <table>
+    <thead><tr><th style="width:26%">Selo</th><th style="width:16%">Cor</th><th>Significa</th></tr></thead>
+    <tbody>
+      <tr><td><strong>API no ar</strong></td><td>verde</td><td>O backend respondeu</td></tr>
+      <tr><td><strong>API offline</strong></td><td>vermelho</td><td>O backend não respondeu. O terminal 1 caiu, ou nunca subiu</td></tr>
+      <tr><td><strong>IA em modo mock</strong></td><td>âmbar</td><td>As respostas vêm do agente simulado, não do Gemini</td></tr>
+      <tr><td><em>nenhum selo</em></td><td>cinza</td><td>Ainda verificando. Aparece por um instante no carregamento</td></tr>
+    </tbody>
+  </table>
+
+  <p>O selo âmbar de mock aparece <strong>junto</strong> com o verde de API no
+  ar. Eles dizem coisas diferentes: um é sobre o backend estar respondendo,
+  outro é sobre quem está escrevendo as respostas.</p>
+
+  <figure class="recorte">
+    <img src="img/04-selos-mock.png" alt="Cabeçalho com os selos de estado">
+    <figcaption><b>Figura 3.</b> O cabeçalho rodando sem chave: o selo verde
+    diz que a API respondeu, e o âmbar diz que quem escreveu a resposta foi o
+    agente simulado. À direita, o seletor de tema com os três estados.</figcaption>
+  </figure>
+
+  <h2>5.2 O <code>/health</code>, que é o diagnóstico completo</h2>
+
+  <p>Abra <code>http://localhost:8000/health</code> no navegador:</p>
+
+<pre><code>{
+  "status": "ok",
+  "banco": "ok",
+  "database_url": "D:\\...\\backend\\data\\app.db",
+  "ia": {
+    "parte2": true,
+    "agente": "gemini",
+    "modo_configurado": "gemini",
+    "llm": "gemini-2.5-flash",
+    "rag": {
+      "carregado": true,
+      "imoveis": 140,
+      "embedder": "gemini-embedding-001",
+      "ultima_busca_ok": true
+    },
+    "detalhe": ""
+  }
+}</code></pre>
+
+  <table>
+    <thead><tr><th style="width:32%">Campo</th><th>O que diz</th></tr></thead>
+    <tbody>
+      <tr><td><code>status</code></td><td>A API está de pé</td></tr>
+      <tr><td><code>banco</code></td><td>O banco respondeu a uma consulta de teste</td></tr>
+      <tr><td><code>database_url</code></td><td>Qual arquivo de banco está em uso. Útil quando “sumiram os dados”</td></tr>
+      <tr><td><code>ia.parte2</code></td><td>Se a memória e o RAG foram importados com sucesso</td></tr>
+      <tr><td><code>ia.agente</code></td><td><strong>Quem respondeu o último turno de verdade</strong></td></tr>
+      <tr><td><code>ia.modo_configurado</code></td><td><strong>O que foi configurado na subida</strong></td></tr>
+      <tr><td><code>ia.llm</code></td><td>O modelo em uso</td></tr>
+      <tr><td><code>ia.rag.carregado</code></td><td>Se o índice de imóveis está em memória</td></tr>
+      <tr><td><code>ia.rag.imoveis</code></td><td>Quantos imóveis foram indexados. Deve ser 140</td></tr>
+      <tr><td><code>ia.rag.embedder</code></td><td><code>gemini-embedding-001</code> com chave, <code>hashing-v1</code> sem</td></tr>
+      <tr><td><code>ia.rag.ultima_busca_ok</code></td><td>Se a última busca por imóvel funcionou. <code>null</code> antes da primeira</td></tr>
+      <tr><td><code>ia.detalhe</code></td><td>Explicação em texto quando algo está degradado</td></tr>
+    </tbody>
+  </table>
+
+  <h3>A diferença entre <code>agente</code> e <code>modo_configurado</code></h3>
+
+  <p>Esses dois campos existem por causa de um problema real: o modo era
+  decidido uma vez, na subida, e nunca mais. Com chave inválida, projeto
+  bloqueado ou cota estourada, o sistema continuava anunciando “gemini”
+  enquanto <strong>todo</strong> turno era respondido pelo mock, e o selo do
+  cabeçalho ficava verde mentindo.</p>
+
+  <p>Hoje, <code>modo_configurado</code> responde “o que eu tentei ser quando
+  subi”, e <code>agente</code> responde “o que eu consegui ser no último turno”.
+  Quando os dois divergem, o campo <code>detalhe</code> explica e o selo âmbar
+  aparece na tela.</p>
+
+  <div class="nota">
+    <span class="rotulo">Se você vir gemini configurado e mock acontecendo</span>
+    <p>A causa está entre chave inválida, projeto bloqueado e cota do dia
+    esgotada. O <code>docs\verificar-chave.py</code> da seção 3.6 diz qual das
+    três em menos de dois segundos.</p>
+  </div>
+</section>
+
+<!-- ====================== 6 ====================== -->
+<section>
+  <h1><span class="numero">Seção 6</span>A tela do Chat</h1>
+
+  <p>Esta é a tela que um cliente da imobiliária veria. Ela tem seis elementos,
+  e cada um mostra uma parte diferente do que o sistema está fazendo.</p>
+
+  <figure>
+    <img src="img/05-chat-completo.png" alt="Chat com etiquetas, painel e imóveis">
+    <figcaption><b>Figura 4.</b> A tela depois de algumas mensagens. Abaixo da
+    resposta, a etiqueta verde de “anotei” e os três imóveis sugeridos, cada um
+    com o seu “Por que este”. À direita, o painel do perfil já com temperatura,
+    nota e seis campos preenchidos.</figcaption>
+  </figure>
+
+  <h2>6.1 A conversa</h2>
+
+  <p>A coluna da esquerda. As mensagens do lead ficam à direita, em verde. As do
+  agente ficam à esquerda, em cinza. Quando o agente está pensando, aparecem
+  três pontinhos animados.</p>
+
+  <p>Quando a resposta veio do agente simulado, a bolha traz uma marca discreta
+  escrita <strong>mock</strong> ao lado. A tela nunca esconde quem respondeu.</p>
+
+  <h2>6.2 As etiquetas de “anotei”</h2>
+
+  <p>Logo abaixo de cada resposta do agente aparecem etiquetas verdes, uma por
+  campo que a memória gravou naquele turno.</p>
+
+  <figure class="recorte">
+    <img src="img/06-etiquetas.png" alt="Etiqueta de anotação do perfil">
+    <figcaption><b>Figura 5.</b> A etiqueta é a prova visível de que a extração
+    funcionou. Quando o sistema <em>corrige</em> um dado que já tinha, ela muda
+    de palavra e passa a dizer “corrigi”.</figcaption>
+  </figure>
+
+  <div class="chave">
+    <span class="rotulo">Por que as etiquetas importam tanto</span>
+    <p>Elas são o principal ponto de observação de toda a demonstração, porque
+    <strong>não dependem da redação da IA</strong>. Ou o campo foi extraído, ou
+    não foi.</p>
+  </div>
+
+  <h2>6.3 O painel “O que já entendi”</h2>
+
+  <p>A coluna da direita, no alto. É o perfil do lead como o sistema o enxerga
+  naquele instante, com os rótulos em português. Ele mostra também o status da
+  qualificação, a nota e a temperatura.</p>
+
+  <p>Esses três números são os mesmos que o corretor vai ver no painel dele: não
+  há cálculo diferente para as duas telas. E eles voltam preenchidos depois de
+  um F5, o que é a prova de que a memória é do servidor, não da aba do
+  navegador.</p>
+
+  <h2>6.4 Os cards de imóvel</h2>
+
+  <p>Quando o sistema já sabe o suficiente, ou seja, região, quartos ou faixa de
+  preço, ele busca no catálogo de 140 imóveis e mostra até três sugestões
+  abaixo da resposta.</p>
+
+  <p>Cada card traz o título, o bairro, o preço e, o que mais importa,
+  <strong>o porquê daquela sugestão</strong>: quantos quartos, quanto do
+  orçamento ocupa, e se a região ou o valor foram relaxados para achar
+  alternativa.</p>
+
+  <p>Esse “porquê” é o que separa uma lista de imóveis de uma recomendação. Ele
+  é montado pela Parte 2 a partir dos filtros que foram realmente aplicados, e
+  não escrito pela IA, então ele é sempre verdadeiro em relação à busca.</p>
+
+  <h2>6.5 O seletor de data</h2>
+
+  <p>Quando o perfil fica completo, o agente convida para agendar e
+  <strong>um seletor de data aparece sozinho na tela</strong>, abaixo da
+  conversa.</p>
+
+  <figure>
+    <img src="img/07-seletor-data.png" alt="Seletor de data aberto no chat">
+    <figcaption><b>Figura 6.</b> O fim de uma qualificação completa. O agente
+    pediu o telefone, convidou para agendar, e o seletor abriu sozinho abaixo da
+    conversa. O título muda conforme a intenção: “sua visita” para quem compra
+    ou aluga, “sua conversa com o especialista” para quem investe. À direita, o
+    perfil fechado em <b>QUENTE, 100 pontos</b>.</figcaption>
+  </figure>
+
+  <div class="chave">
+    <span class="rotulo">A regra do agendamento</span>
+    <p><strong>O agente nunca pergunta dia e hora por escrito.</strong> Quem
+    resolve isso é o seletor. Se o agente perguntasse em texto, o lead
+    escreveria uma data que não viraria agendamento nenhum, e teria que digitar
+    tudo de novo no formulário.</p>
+  </div>
+
+  <p>O seletor recusa datas no passado, e os horários andam de trinta em trinta
+  minutos. Se você clicar em <strong>Depois</strong>, ele fecha e não volta a
+  abrir sozinho, para não insistir a cada turno.</p>
+
+  <h2>6.6 O card “Meus dados (LGPD)”</h2>
+
+  <figure class="recorte">
+    <img src="img/08-lgpd.png" alt="Card de LGPD na tela do lead">
+    <figcaption><b>Figura 7.</b> Os três controles que o lead tem sobre os
+    próprios dados, sem precisar pedir a ninguém.</figcaption>
+  </figure>
+
+  <table>
+    <thead><tr><th style="width:38%">Controle</th><th>O que faz</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Pode me procurar</strong> / <strong>Não quero mais ser procurado</strong></td><td>Liga e desliga o follow-up automático, sem apagar a conversa</td></tr>
+      <tr><td><strong>Baixar meus dados</strong></td><td>Gera um JSON com tudo que o sistema guarda daquele lead</td></tr>
+      <tr><td><strong>Excluir meus dados</strong></td><td>Apaga o lead, as mensagens, os agendamentos e a memória da IA</td></tr>
+    </tbody>
+  </table>
+
+  <p>Repare que revogar o contato <strong>não pede confirmação</strong>, e
+  excluir <strong>pede</strong>. Isso não é inconsistência. Uma caixa de diálogo
+  no caminho de quem quer sair é atrito colocado de propósito, e é justamente o
+  que a LGPD não admite. Já excluir é destrutivo e irreversível, então confirmar
+  é proteger o usuário.</p>
+</section>

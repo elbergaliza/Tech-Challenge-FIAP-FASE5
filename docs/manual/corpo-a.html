@@ -1,0 +1,293 @@
+<!-- ====================== 1 ====================== -->
+<section>
+  <h1><span class="numero">Seção 1</span>O que é este sistema</h1>
+
+  <h2>1.1 O problema de negócio</h2>
+
+  <p>Uma imobiliária recebe leads pelo site, pelo portal e pelo WhatsApp. A
+  maior parte deles nunca vira nada, e o corretor não tem como saber quais
+  valem uma ligação sem conversar com todos. O SDR, sigla de
+  <em>Sales Development Representative</em>, é a pessoa que faz esse primeiro
+  filtro: descobre o que o cliente quer, qualifica, e entrega ao corretor
+  apenas quem está pronto.</p>
+
+  <p>Este projeto é um SDR de software. Ele conversa com o lead, extrai as
+  informações que definem a oportunidade, sugere imóveis do catálogo, marca a
+  visita, e entrega ao corretor uma ficha pronta com nota e próxima ação.</p>
+
+  <h2>1.2 As quatro partes</h2>
+
+  <p>O sistema é dividido em quatro módulos, cada um com responsabilidade
+  própria. Eles rodam juntos, mas foram escritos para serem entendidos
+  separadamente.</p>
+
+  <table>
+    <thead><tr><th style="width:24%">Parte</th><th style="width:20%">Pasta</th><th>Do que cuida</th></tr></thead>
+    <tbody>
+      <tr><td>1. Agente de IA</td><td><code>ai-core/</code></td><td>Conversa com o lead e extrai dados da fala</td></tr>
+      <tr><td>2. Memória e RAG</td><td><code>ai-memory-rag/</code></td><td>Lembra do lead, busca imóveis, calcula o score, decide o follow-up</td></tr>
+      <tr><td>3. Backend</td><td><code>backend/</code></td><td>API HTTP, banco de dados, agendamentos, job de retomada</td></tr>
+      <tr><td>4. Frontend</td><td><code>frontend/</code></td><td>As telas: o chat do lead e o painel do corretor</td></tr>
+    </tbody>
+  </table>
+
+  <p>O caminho de uma única mensagem atravessa as quatro:</p>
+
+<pre><code>Lead escreve no chat                                    (Parte 4)
+      |
+      v
+Backend recebe em POST /chat                            (Parte 3)
+      |
+      v
+Memoria absorve a mensagem e mascara os dados pessoais   (Parte 2)
+      |
+      v
+RAG busca imoveis compativeis com o perfil               (Parte 2)
+      |
+      v
+Agente escreve a resposta, com o contexto                (Parte 1)
+      |
+      v
+Memoria grava o que mudou e recalcula o score            (Parte 2)
+      |
+      v
+Tela mostra resposta, etiquetas, perfil e imoveis        (Parte 4)</code></pre>
+
+  <h2>1.3 O que você vai ver quando abrir</h2>
+
+  <p>O sistema tem <strong>duas experiências no mesmo endereço</strong>.</p>
+
+  <p>A <strong>tela do lead</strong> (<code>/</code>), que é o chat, é o que um
+  cliente da imobiliária veria. As <strong>telas do corretor</strong>
+  (<code>/painel</code>) são o dashboard com os leads qualificados, a ficha de
+  cada lead, a agenda de visitas e o catálogo de imóveis.</p>
+
+  <p>As duas convivem porque isto é uma demonstração acadêmica, e ver os dois
+  lados ao mesmo tempo é justamente o ponto: você escreve no chat e observa o
+  painel reagir.</p>
+
+  <figure>
+    <img src="img/01-chat-inicial.png" alt="Tela inicial do chat">
+    <figcaption><b>Figura 1.</b> A tela do chat ao abrir. No alto, o cabeçalho
+    com as abas e o selo verde de API no ar. À esquerda a conversa, à direita o
+    painel do perfil, ainda vazio. Abaixo da caixa de consentimento fica o aviso
+    de que a conversa é processada por IA.</figcaption>
+  </figure>
+</section>
+
+<!-- ====================== 2 ====================== -->
+<section>
+  <h1><span class="numero">Seção 2</span>Antes de começar</h1>
+
+  <h2>2.1 O que precisa estar instalado</h2>
+
+  <table>
+    <thead><tr><th>Programa</th><th>Versão mínima</th><th>Versão em que foi testado</th></tr></thead>
+    <tbody>
+      <tr><td>Python</td><td>3.11</td><td>3.11</td></tr>
+      <tr><td>Node.js</td><td>20</td><td>24.19</td></tr>
+      <tr><td>npm</td><td>10</td><td>11</td></tr>
+    </tbody>
+  </table>
+
+  <h2>2.2 Como conferir</h2>
+
+  <p>Abra o PowerShell e rode, na raiz do projeto:</p>
+
+<pre><code>cd "D:\Projects\Pos\Fase 05\Tech-Challenge-FIAP-FASE5"
+
+python --version
+node --version
+npm --version</code></pre>
+
+  <p>Você deve ver três linhas com números iguais ou maiores que os da tabela
+  acima.</p>
+
+  <h2>2.3 Se alguma versão estiver faltando ou velha</h2>
+
+  <p><strong>Python.</strong> Baixe em
+  <a href="https://www.python.org/downloads/">python.org/downloads</a> e marque
+  a caixa <em>Add Python to PATH</em> durante a instalação. Sem essa caixa
+  marcada, o comando <code>python</code> não é reconhecido no terminal e você
+  vai precisar digitar o caminho completo toda vez.</p>
+
+  <p><strong>Node.js.</strong> Baixe a versão LTS em
+  <a href="https://nodejs.org/">nodejs.org</a>. O npm vem junto, não precisa
+  instalar separado.</p>
+
+  <div class="atencao">
+    <span class="rotulo">Depois de instalar</span>
+    <p>Feche e abra o PowerShell de novo. O terminal lê o PATH quando abre,
+    então um terminal que já estava aberto continua sem enxergar o programa
+    recém-instalado.</p>
+  </div>
+
+  <h2>2.4 Preparar o ambiente Python</h2>
+
+  <p>O projeto usa um ambiente virtual próprio, para não misturar as
+  bibliotecas dele com as do resto da sua máquina.</p>
+
+<pre><code>cd "D:\Projects\Pos\Fase 05\Tech-Challenge-FIAP-FASE5"
+
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install --upgrade pip
+.venv\Scripts\python.exe -m pip install -r backend\requirements.txt</code></pre>
+
+  <p>A última linha instala tudo que as quatro partes precisam: FastAPI,
+  uvicorn, SQLAlchemy, Pydantic, APScheduler e o SDK do Google Gemini. A
+  instalação leva alguns minutos. Se aparecer erro de rede, rode de novo: o pip
+  retoma o que já baixou.</p>
+
+  <div class="nota">
+    <span class="rotulo">Por que o caminho completo</span>
+    <p>Em todo este manual o Python é chamado como
+    <code>.venv\Scripts\python.exe</code>, e não como <code>python</code>. Isso
+    é proposital: garante que você está usando o ambiente do projeto, com as
+    bibliotecas certas, mesmo que haja outro Python instalado na máquina.</p>
+  </div>
+
+  <h2>2.5 Preparar o frontend</h2>
+
+<pre><code>cd "D:\Projects\Pos\Fase 05\Tech-Challenge-FIAP-FASE5\frontend"
+
+npm install</code></pre>
+
+  <p>Este comando roda uma vez só, na primeira vez. Ele cria a pasta
+  <code>node_modules</code>, que é grande e não vai para o Git.</p>
+</section>
+
+<!-- ====================== 3 ====================== -->
+<section>
+  <h1><span class="numero">Seção 3</span>A chave do Google Gemini</h1>
+
+  <h2>3.1 Você precisa mesmo de uma chave?</h2>
+
+  <p>Não para rodar. Sim para ver a IA de verdade.</p>
+
+  <p><strong>Sem chave</strong>, o sistema sobe normalmente e funciona inteiro:
+  o chat responde, a memória grava, os imóveis aparecem, o painel calcula os
+  scores, a agenda funciona. O que muda é quem escreve as respostas. No lugar
+  do Gemini entra um agente simulado, o <em>mock</em>, que pergunta de forma
+  direta e robótica o próximo campo que falta no perfil.</p>
+
+  <p><strong>Com chave</strong>, as respostas são escritas pelo Gemini, e a
+  conversa fica natural.</p>
+
+  <p>O cabeçalho da tela avisa em qual modo você está, o tempo inteiro. Não
+  existe o caso de estar em mock sem saber.</p>
+
+  <div class="chave">
+    <span class="rotulo">Recomendação prática</span>
+    <p><strong>Desenvolva sem chave, apresente com chave.</strong> Assim você
+    não gasta a cota diária ajustando detalhe de tela, e chega na banca com a
+    cota inteira disponível.</p>
+  </div>
+
+  <h2>3.2 Como obter a chave</h2>
+
+  <ol class="passo">
+    <li>Acesse <a href="https://aistudio.google.com/apikey">aistudio.google.com/apikey</a>.</li>
+    <li>Entre com uma conta Google.</li>
+    <li>Clique em <strong>Create API key</strong>.</li>
+    <li>Escolha um projeto do Google Cloud, ou deixe o AI Studio criar um novo.</li>
+    <li>Copie a chave. Ela começa com <code>AIza</code> e tem cerca de 39 caracteres.</li>
+  </ol>
+
+  <p>A chave é gratuita e o plano gratuito não pede cartão de crédito.</p>
+
+  <div class="atencao">
+    <span class="rotulo">Trate a chave como senha</span>
+    <p>Ela dá acesso à sua cota e, com faturamento ativo, à sua fatura. Não cole
+    em print, em slide, em mensagem de grupo nem em commit. O arquivo onde ela
+    mora está no <code>.gitignore</code> justamente por isso, e é também por
+    isso que não há uma captura da chave neste manual.</p>
+  </div>
+
+  <h2>3.3 Onde colar a chave</h2>
+
+  <p>Crie um arquivo chamado <code>.env</code> na <strong>raiz do
+  repositório</strong>, não dentro de <code>backend/</code>. A raiz é onde as
+  três partes de Python procuram, então um arquivo só serve para todas.</p>
+
+<pre><code>cd "D:\Projects\Pos\Fase 05\Tech-Challenge-FIAP-FASE5"
+copy backend\.env.example .env
+notepad .env</code></pre>
+
+  <p>Preencha as duas primeiras variáveis:</p>
+
+<pre><code>GEMINI_API_KEY=AIza...sua-chave-aqui
+GEMINI_MODEL=gemini-2.5-flash</code></pre>
+
+  <h2>3.4 Por que fixar o modelo</h2>
+
+  <p>A cota gratuita do Gemini é contada <strong>por modelo</strong>. Se o
+  agente da Parte 1 usasse um modelo e o resumo da Parte 2 usasse outro, o
+  projeto gastaria duas cotas separadas, e você veria um sintoma confuso: o
+  chat parando por erro de cota enquanto o resumo do corretor continua
+  funcionando.</p>
+
+  <p>Por isso as duas metades leem a mesma variável. Fixe um id em vez de
+  confiar no padrão do código. Dois modelos foram verificados neste projeto:
+  <code>gemini-2.5-flash</code>, que é o padrão, e
+  <code>gemini-3.6-flash</code>.</p>
+
+  <h2>3.5 O que é a cota gratuita, na prática</h2>
+
+  <p>O plano gratuito dá <strong>20 requisições por dia, por modelo</strong>.</p>
+
+  <p>Cada mensagem que você manda no chat consome <strong>uma</strong>
+  requisição de geração. Uma conversa de qualificação completa tem de seis a
+  oito mensagens, então você consegue rodar <strong>duas ou três conversas
+  inteiras por dia</strong> na cota gratuita.</p>
+
+  <p>Isso é pouco, e é bom saber antes, não durante a apresentação. O sistema
+  tem três defesas:</p>
+
+  <ol class="passo">
+    <li><strong>A busca de imóveis usa outro modelo</strong>
+      (<code>gemini-embedding-001</code>), que tem cota própria, e o índice fica
+      em cache no disco. Ela não gasta a sua cota de conversa.</li>
+    <li><strong>O job de follow-up não usa IA por padrão.</strong> Ele escreve o
+      texto por regra. Antes ele gastava a mesma cota do chat em segundo plano,
+      a cada 30 minutos, e a pessoa via o chat cair em mock sem entender por
+      quê.</li>
+    <li><strong>Quando a cota acaba, o chat não quebra.</strong> Ele cai no
+      agente mock, marca a bolha na tela, e a qualificação continua andando.</li>
+  </ol>
+
+  <p>Se precisar de mais volume, habilite faturamento no AI Studio, em
+  <em>Projects</em>, <em>Set up billing</em>. Com faturamento ativo, o custo do
+  <code>gemini-2.5-flash</code> no volume deste projeto fica na casa de centavos
+  por apresentação.</p>
+
+  <h2>3.6 Conferir se a chave está funcionando</h2>
+
+  <p>O projeto tem uma ferramenta que traduz o erro do Gemini em
+  <strong>o que fazer</strong>. Isso importa porque a API devolve mensagens
+  parecidas, como “429” e “403”, para situações bem diferentes: cota do dia
+  esgotada, crédito zerado, projeto bloqueado, tipo de chave errado. Cada uma
+  pede uma ação diferente, e adivinhar custa uma tarde.</p>
+
+<pre><code>cd "D:\Projects\Pos\Fase 05\Tech-Challenge-FIAP-FASE5"
+.venv\Scripts\python.exe docs\verificar-chave.py</code></pre>
+
+  <p>Saída quando está tudo certo:</p>
+
+<pre><code>Chave e modelo configurados no .env da raiz
+
+  chave:  AIzaSyAb... (39 caracteres)
+  modelo: gemini-2.5-flash
+
+  <span class="ok">ok</span>    geracao (gemini-2.5-flash)     1.8s
+  <span class="ok">ok</span>    embedding (RAG)                0.9s
+
+Tudo certo. As duas metades do sistema vao usar gemini-2.5-flash.</code></pre>
+
+  <p>O script nunca imprime a chave inteira, apenas o prefixo e o tamanho.
+  Quando algo falha, ele diz o motivo e o caminho:</p>
+
+<pre><code>  <span class="war">FALHA</span> geracao (gemini-2.5-flash)     429 RESOURCE_EXHAUSTED ...
+        -&gt; Cota GRATUITA do dia acabada para este modelo (sao 20 por
+           dia e por modelo). Espere amanha, troque o GEMINI_MODEL,
+           ou habilite faturamento.</code></pre>
+</section>

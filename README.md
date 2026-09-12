@@ -179,3 +179,9 @@ tela e, com o mesmo cuidado, **até onde a proteção vai**:
 antes da apresentação: declarar o limite antes de perguntarem vale mais que a
 proteção em si.
 
+**Se você está chegando agora no projeto, comece pelo manual:**
+[`docs/Manual-Agente-SDR-Imobiliario.pdf`](docs/Manual-Agente-SDR-Imobiliario.pdf).
+São 44 páginas que levam do zero até o sistema rodando, explicam cada tela e
+dizem o que observar durante a avaliação. A fonte dele, para editar e gerar de
+novo, está em [`docs/manual/`](docs/manual/).
+

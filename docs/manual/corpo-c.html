@@ -1,0 +1,359 @@
+<!-- ====================== 7 ====================== -->
+<section>
+  <h1><span class="numero">Seção 7</span>Como conversar com o agente</h1>
+
+  <p>Esta é a seção central do manual.</p>
+
+  <h2>7.1 A regra que evita o falso defeito</h2>
+
+  <p>O agente é um modelo de linguagem. <strong>A redação dele varia a cada
+  execução</strong>, mesmo com a mesma entrada. Ele pode cumprimentar, elogiar a
+  escolha do bairro, juntar duas perguntas numa frase, inverter a ordem de duas
+  frases. Nada disso é defeito.</p>
+
+  <p>O que <strong>não</strong> varia, porque não depende do modelo:</p>
+
+  <ul>
+    <li>Quais campos o sistema persegue, e em que ordem</li>
+    <li>Quais etiquetas de “anotei” aparecem</li>
+    <li>Quais campos o painel do perfil preenche</li>
+    <li>Quando o seletor de data surge</li>
+    <li>Se os imóveis sugeridos respeitam o orçamento informado</li>
+    <li>Se o investidor recebe consultoria em vez de visita</li>
+    <li>Quanto o lead pontua e qual temperatura ele recebe</li>
+  </ul>
+
+  <p>Essas sete coisas são decididas por código, não pelo modelo. São elas que
+  você deve observar.</p>
+
+  <h2>7.2 As três frases de partida</h2>
+
+  <p>A <strong>intenção</strong> é o primeiro campo da ordem de coleta, e é ela
+  que decide todo o resto do funil. Por isso vale começar por uma frase que
+  deixe a intenção clara. Dali em diante, responda naturalmente, do seu jeito.</p>
+
+  <table>
+    <thead><tr><th style="width:24%">Caminho</th><th>Frase de partida</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Compra</strong></td><td><code>Oi, quero comprar um apartamento</code></td></tr>
+      <tr><td><strong>Aluguel</strong></td><td><code>Oi, estou procurando um apartamento para alugar</code></td></tr>
+      <tr><td><strong>Investimento</strong></td><td><code>Oi, quero investir em imóveis para alugar</code></td></tr>
+    </tbody>
+  </table>
+
+  <div class="nota">
+    <span class="rotulo">Repare na terceira</span>
+    <p>Ela tem a palavra “alugar” dentro, e mesmo assim a intenção correta é
+    <strong>investimento</strong>. Ali, “alugar” diz o que a pessoa vai fazer
+    com o imóvel, não por que ela está procurando. Quem procura para morar não
+    fala em investir. Vale observar essa etiqueta com atenção.</p>
+  </div>
+
+  <h2>7.3 O que o agente vai perseguir, por caminho</h2>
+
+  <p>As ordens de coleta são <strong>diferentes</strong> por intenção, e essa
+  diferença é uma das coisas mais importantes para observar.</p>
+
+  <h3>Comprador e locatário</h3>
+
+  <table>
+    <thead><tr><th style="width:10%">Ordem</th><th style="width:30%">Campo</th><th>Como a pergunta costuma soar</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Intenção</td><td>comprar, alugar ou investir?</td></tr>
+      <tr><td>2</td><td>Região</td><td>qual bairro ou região?</td></tr>
+      <tr><td>3</td><td>Quartos</td><td>quantos quartos?</td></tr>
+      <tr><td>4</td><td>Faixa de preço</td><td>qual orçamento, ou valor do aluguel?</td></tr>
+      <tr><td>5</td><td>Urgência</td><td>para quando precisa?</td></tr>
+      <tr><td>6</td><td>Telefone</td><td>qual o telefone com DDD?</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Investidor</h3>
+
+  <table>
+    <thead><tr><th style="width:10%">Ordem</th><th style="width:30%">Campo</th><th>Como a pergunta costuma soar</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Intenção</td><td>confirmar que é investimento</td></tr>
+      <tr><td>2</td><td>Ticket de investimento</td><td>quanto pretende aplicar?</td></tr>
+      <tr><td>3</td><td>Retorno esperado</td><td>quanto espera receber, em % ao ano ou R$ por mês?</td></tr>
+      <tr><td>4</td><td>Região</td><td>qual bairro ou região?</td></tr>
+      <tr><td>5</td><td>Urgência</td><td>para quando pretende investir?</td></tr>
+      <tr><td>6</td><td>Telefone</td><td>qual o telefone com DDD?</td></tr>
+    </tbody>
+  </table>
+
+  <div class="atencao">
+    <span class="rotulo">O investidor nunca é perguntado sobre quartos</span>
+    <p>Quem investe decide por ticket e retorno, e perguntar quantos quartos ele
+    quer é a pergunta errada, que queima a credibilidade da conversa. Se você
+    vir o agente perguntando quartos a um investidor, isso <strong>é</strong> um
+    defeito, e vale reportar.</p>
+  </div>
+
+  <p>Nome e e-mail não são perseguidos por nenhum dos dois caminhos. Se você se
+  apresentar, o agente usa o nome. Se não, ele não cobra.</p>
+
+  <h2>7.4 O que observar durante a conversa</h2>
+
+  <p>Use esta lista como roteiro. Ela vale para qualquer redação que a IA
+  escolher.</p>
+
+  <h4>A cada resposta</h4>
+  <ul class="checklist">
+    <li>A etiqueta de “anotei” apareceu para o dado que você acabou de informar</li>
+    <li>O painel “O que já entendi” ganhou aquele campo, com o rótulo em português</li>
+    <li>O agente não repetiu uma pergunta que você já respondeu</li>
+    <li>O agente fez uma pergunta por vez, e não despejou um questionário</li>
+  </ul>
+
+  <h4>Quando você informar a região ou os quartos</h4>
+  <ul class="checklist">
+    <li>Cards de imóvel apareceram abaixo da resposta</li>
+    <li>Cada card explica por que aquele imóvel foi sugerido</li>
+  </ul>
+
+  <h4>Quando você informar o orçamento</h4>
+  <ul class="checklist">
+    <li>Os imóveis sugeridos passaram a respeitar o valor</li>
+    <li>Nenhum imóvel muito acima do orçamento aparece sem justificativa no card</li>
+  </ul>
+
+  <h4>Quando o perfil completar</h4>
+  <ul class="checklist">
+    <li>O seletor de data apareceu sozinho, sem você clicar em nada</li>
+    <li>O agente convidou para agendar, e não perguntou dia e hora em texto</li>
+    <li>Para investidor, o convite fala em <strong>especialista</strong> ou <strong>consultoria</strong></li>
+    <li>Para comprador e locatário, o convite fala em <strong>visita</strong></li>
+  </ul>
+
+  <h4>No painel do perfil, a qualquer momento</h4>
+  <ul class="checklist">
+    <li>A temperatura e a nota subiram conforme você informou mais dados</li>
+    <li>Para investidor, aparecem <strong>Ticket</strong> e <strong>Retorno esperado</strong>, e não Quartos</li>
+  </ul>
+
+  <h2>7.5 Coisas que valem provocar de propósito</h2>
+
+  <p>Estas situações mostram decisões de projeto que não aparecem numa conversa
+  tranquila.</p>
+
+  <table>
+    <thead><tr><th style="width:34%">Escreva isto</th><th>E observe</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>550</code> quando ele perguntar quantos quartos</td>
+        <td>O perfil <strong>não</strong> grava 550, e o agente pede de novo. Um número implausível é recusado porque um painel com dado inventado é pior que um painel com campo vazio</td>
+      </tr>
+      <tr>
+        <td><code>R$ 8.550</code> na pergunta de quartos</td>
+        <td>O valor vira <strong>orçamento</strong>, não quartos. A forma do que você escreveu manda mais que a pergunta que estava em aberto</td>
+      </tr>
+      <tr>
+        <td><code>99999-4410</code>, telefone sem DDD</td>
+        <td>O agente pede o DDD, e pede <strong>só</strong> o DDD, sem repetir a pergunta inteira</td>
+      </tr>
+      <tr>
+        <td>Diga Tijuca, e três mensagens depois diga Botafogo</td>
+        <td>A etiqueta muda para <strong>corrigi</strong>, e o painel troca o valor</td>
+      </tr>
+      <tr>
+        <td><code>não quero mais receber mensagens</code></td>
+        <td>Isso bloqueia o follow-up automático para sempre, mesmo com o consentimento marcado</td>
+      </tr>
+      <tr>
+        <td><code>quero uma casa</code> em vez de apartamento</td>
+        <td>O tipo entra no perfil e a busca passa a trazer casas. Sala comercial deixa de aparecer para quem falou em quartos</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>7.6 Quando a resposta parecer estranha</h2>
+
+  <p>Antes de concluir que é defeito, confira três coisas:</p>
+
+  <ol class="passo">
+    <li><strong>O selo do cabeçalho está âmbar?</strong> Se sim, quem respondeu
+      foi o mock, e ele é robótico de propósito.</li>
+    <li><strong>A etiqueta apareceu?</strong> Se apareceu, a extração funcionou,
+      e o que você está avaliando é redação, que varia.</li>
+    <li><strong>O painel preencheu o campo?</strong> Se preencheu, o sistema
+      entendeu, mesmo que a frase da IA tenha ficado esquisita.</li>
+  </ol>
+
+  <p>Se as três respostas forem “sim, funcionou” e a frase ainda assim estiver
+  ruim, aí sim vale anotar: é um problema de prompt, e o lugar dele é
+  <code>ai-core/src/agent.py</code>, na constante <code>SYSTEM_PROMPT</code>.</p>
+</section>
+
+<!-- ====================== 8 ====================== -->
+<section>
+  <h1><span class="numero">Seção 8</span>As telas do corretor</h1>
+
+  <h2>8.1 Dashboard</h2>
+
+  <figure>
+    <img src="img/09-dashboard.png" alt="Dashboard do corretor">
+    <figcaption><b>Figura 8.</b> Os seis números do topo, os três gráficos e a
+    lista de leads com a faixa de temperatura na borda esquerda de cada linha.
+    À direita, os leads que estão devendo resposta.</figcaption>
+  </figure>
+
+  <h3>Os seis números do topo</h3>
+
+  <table>
+    <thead><tr><th style="width:26%">Indicador</th><th>O que conta</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Leads</strong></td><td>Total de leads na base</td></tr>
+      <tr><td><strong>Quentes</strong></td><td>Nota igual ou maior que 70</td></tr>
+      <tr><td><strong>Mornos</strong></td><td>Nota entre 40 e 69</td></tr>
+      <tr><td><strong>Frios</strong></td><td>Nota abaixo de 40</td></tr>
+      <tr><td><strong>Qualificação</strong></td><td>Percentual de leads que chegaram a qualificado</td></tr>
+      <tr><td><strong>Agenda</strong></td><td>Agendamentos próximos, e quantos são hoje</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Os três gráficos</h3>
+
+  <p><strong>Por status</strong> mostra em que ponto do funil os leads estão.
+  <strong>Por intenção</strong> mostra a divisão entre compra, aluguel e
+  investimento. <strong>Regiões mais pedidas</strong> mostra a demanda por
+  bairro, e para uma imobiliária esse é o gráfico que diz onde vale captar
+  imóvel novo.</p>
+
+  <h3>A lista de leads</h3>
+
+  <p>Cada linha tem uma faixa colorida na borda esquerda, que é a temperatura. O
+  corretor varre trinta leads pela cor e só lê a linha onde vai parar. A lista
+  tem busca por nome, e-mail ou telefone, filtro por temperatura, status e
+  intenção, e ordenação por nota, silêncio ou data.</p>
+
+  <p>A coluna <strong>Silêncio</strong> é quanto tempo faz desde a última
+  mensagem daquele lead. É o número que decide o follow-up.</p>
+
+  <h3>Precisam de atenção</h3>
+
+  <p>O cartão da direita lista os leads em silêncio há tempo suficiente para
+  merecer uma retomada, do mais silencioso ao menos. Cada item traz o motivo da
+  decisão em texto, como “72h de silêncio, tentativa 2 de 3”, e um botão que
+  gera o texto sugerido.</p>
+
+  <div class="nota">
+    <span class="rotulo">O único botão do painel que gasta cota</span>
+    <p>É o de gerar o texto de retomada, e ele só gasta quando você clica. Todo
+    o resto do painel é calculado por regra.</p>
+  </div>
+
+  <h2>8.2 Detalhe do lead</h2>
+
+  <figure>
+    <img src="img/10-detalhe.png" alt="Ficha de um lead">
+    <figcaption><b>Figura 9.</b> A ficha de um investidor qualificado. O
+    cabeçalho traz temperatura, nota e status; abaixo ficam as ações do corretor
+    e o resumo com a próxima ação recomendada.</figcaption>
+  </figure>
+
+  <h3>Como a nota é calculada</h3>
+
+  <p>Esta é a parte que a banca costuma perguntar. A nota vai de 0 a 100, e é a
+  soma de sete fatores:</p>
+
+  <table>
+    <thead><tr><th style="width:34%">Fator</th><th style="width:14%">Pontos</th><th>Quando conta</th></tr></thead>
+    <tbody>
+      <tr><td>Intenção informada</td><td>20</td><td>O lead disse se compra, aluga ou investe</td></tr>
+      <tr><td>Contato disponível</td><td>20</td><td>Tem telefone ou e-mail</td></tr>
+      <tr><td>Faixa de preço</td><td>15</td><td>Para investidor, conta o <strong>ticket</strong> no lugar</td></tr>
+      <tr><td>Urgência alta</td><td>15</td><td>O lead declarou pressa</td></tr>
+      <tr><td>Região informada</td><td>10</td><td></td></tr>
+      <tr><td>Quartos informados</td><td>10</td><td>Para investidor, conta o <strong>retorno esperado</strong> no lugar</td></tr>
+      <tr><td>Engajado</td><td>10</td><td>O lead trocou três mensagens ou mais</td></tr>
+    </tbody>
+  </table>
+
+  <p>Contato pesa tanto quanto intenção porque, para um SDR, contato é o produto
+  final: um lead perfeitamente qualificado sem telefone é um lead que o corretor
+  não consegue atender.</p>
+
+  <p>A substituição de dois fatores para o investidor existe porque faixa de
+  preço e quartos são exatamente os campos que o funil de investimento não
+  pergunta. Sem essa troca, um investidor que respondesse tudo ficaria com 60
+  pontos no teto e nunca chegaria a quente.</p>
+
+  <p><strong>Desconto por silêncio.</strong> Um lead que pontuou 80 e sumiu há
+  um mês não está quente. A nota perde 10 pontos depois de uma semana de
+  silêncio, 25 depois de um mês, e até 40 no limite.</p>
+
+  <p><strong>Temperatura:</strong> <span class="t-quente">70 ou mais é
+  QUENTE</span>, <span class="t-morno">de 40 a 69 é MORNO</span>,
+  <span class="t-frio">abaixo de 40 é FRIO</span>.</p>
+
+  <p>A ficha mostra os fatores um a um, e não só o número final, porque o
+  corretor precisa saber <strong>por que</strong> o lead está quente para
+  decidir o que dizer na ligação.</p>
+
+  <h3>Resumo e próxima ação</h3>
+
+  <p>Um parágrafo que diz o que o lead quer, o que ele ainda não informou, e
+  qual é a próxima ação recomendada. Ele é gerado por regra, sem gastar IA;
+  existe um botão para gerar a versão escrita pelo Gemini.</p>
+
+  <table>
+    <thead><tr><th style="width:38%">Situação</th><th>Próxima ação</th></tr></thead>
+    <tbody>
+      <tr><td>Sem intenção conhecida</td><td>Descobrir se é compra, aluguel ou investimento</td></tr>
+      <tr><td>Sem contato</td><td>Pedir telefone ou e-mail antes de avançar</td></tr>
+      <tr><td>Quente e investidor</td><td>Encaminhar para o especialista em investimentos hoje</td></tr>
+      <tr><td>Quente</td><td>Ligar hoje e agendar visita</td></tr>
+      <tr><td>Morno</td><td>Perseguir os campos que faltam, conforme a intenção</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Ações do corretor</h3>
+
+  <p><strong>Mover para</strong> muda o status entre novo, em andamento,
+  qualificado, agendado e descartado. <strong>Exportar JSON</strong> baixa tudo
+  que o sistema guarda daquele lead. <strong>Apagar (LGPD)</strong> remove o
+  lead, as mensagens, os agendamentos e a memória da IA; pede confirmação, e não
+  tem volta.</p>
+
+  <h2>8.3 Agenda</h2>
+
+  <figure>
+    <img src="img/11-agenda.png" alt="Agenda de visitas">
+    <figcaption><b>Figura 10.</b> Os agendamentos agrupados por dia, com a
+    janela de tempo e o filtro de status no alto. Cada item tem as quatro ações
+    do corretor.</figcaption>
+  </figure>
+
+  <p>Cada item traz hora, tipo (visita, reunião ou consultoria), o lead com link
+  para a ficha, e quatro ações: <strong>Realizado</strong>, <strong>Não
+  compareceu</strong>, <strong>Remarcar</strong> e <strong>Cancelar</strong>.
+  Remarcar recusa data no passado, igual ao seletor do chat.</p>
+
+  <h2>8.4 Imóveis</h2>
+
+  <figure>
+    <img src="img/12-imoveis.png" alt="Catálogo de imóveis">
+    <figcaption><b>Figura 11.</b> O catálogo que alimenta as sugestões do chat,
+    com filtro por tipo de negócio, bairro, quartos e preço.</figcaption>
+  </figure>
+
+  <p>São <strong>140 imóveis em 20 bairros do Rio de Janeiro</strong>:</p>
+
+  <table>
+    <thead><tr><th>Recorte</th><th style="width:18%">Quantidade</th><th>Recorte</th><th style="width:18%">Quantidade</th></tr></thead>
+    <tbody>
+      <tr><td>À venda</td><td>93</td><td>Apartamentos</td><td>83</td></tr>
+      <tr><td>Para alugar</td><td>47</td><td>Casas</td><td>20</td></tr>
+      <tr><td>Coberturas</td><td>17</td><td>Studios</td><td>11</td></tr>
+      <tr><td>Salas comerciais</td><td>9</td><td></td><td></td></tr>
+    </tbody>
+  </table>
+
+  <div class="nota">
+    <span class="rotulo">Dica para a demonstração</span>
+    <p>Abra esta tela <strong>antes</strong> de conversar no chat, para saber o
+    que existe na base. Assim você pede algo que tem estoque, e as sugestões do
+    chat ficam mais interessantes de mostrar.</p>
+  </div>
+</section>

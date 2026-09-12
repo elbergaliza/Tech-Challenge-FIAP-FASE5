@@ -1,0 +1,277 @@
+<!-- ====================== 9 ====================== -->
+<section>
+  <h1><span class="numero">Seção 9</span>Privacidade, e o que dizer sobre ela</h1>
+
+  <p>O documento completo é o <code>docs/privacidade-e-limites.md</code>. Esta
+  seção é o resumo que serve para responder na apresentação.</p>
+
+  <h2>9.1 O que sai do sistema</h2>
+
+  <p>Toda mensagem passa por pseudonimização antes de chegar ao Google Gemini.
+  Nome, e-mail e telefone são trocados por apelidos:</p>
+
+<pre><code>ORIGINAL : meu nome e Marcos, email marcos@teste.com,
+           telefone 21 99999-4410, quero 3 quartos em Botafogo
+
+ENVIADO  : meu nome e [NOME_1], email [EMAIL_1],
+           telefone [TELEFONE_1], quero 3 quartos em Botafogo</code></pre>
+
+  <p>O que interessa para achar imóvel, “3 quartos em Botafogo”, atravessa
+  intacto: a proteção não custa qualidade de resposta.</p>
+
+  <p>São três os caminhos que falam com o Gemini, e os três recebem o texto
+  mascarado: a geração da resposta, a busca de imóveis por embedding, e o resumo
+  com o follow-up. O caminho de volta desfaz a troca antes de o lead ler.</p>
+
+  <h2>9.2 Os direitos do titular, na tela</h2>
+
+  <table>
+    <thead><tr><th style="width:26%">Direito</th><th style="width:32%">Onde</th><th>O que faz</th></tr></thead>
+    <tbody>
+      <tr><td>Acesso (art. 18, II)</td><td>Chat, Meus dados, Baixar</td><td>JSON com tudo que o sistema guarda</td></tr>
+      <tr><td>Exclusão (art. 18, VI)</td><td>Chat, Meus dados, Excluir</td><td>Apaga lead, mensagens, agendamentos e memória</td></tr>
+      <tr><td>Revogação (art. 8º, §5º)</td><td>Chat, Meus dados, Não quero mais ser procurado</td><td>Desliga o follow-up sem apagar a conversa</td></tr>
+    </tbody>
+  </table>
+
+  <p>Há também <strong>retenção</strong>: a memória da IA tem prazo de 180 dias,
+  e a purga roda na subida do backend, apagando as duas representações dos leads
+  vencidos. E há <strong>transparência</strong>: no primeiro turno, abaixo da
+  caixa de consentimento, o lead lê que a conversa é respondida por IA e
+  processada pelo Google Gemini. Esse aviso não tem caixa para marcar, porque é
+  informação (art. 9º), não consentimento.</p>
+
+  <h2>9.3 Os limites, declarados</h2>
+
+  <div class="chave">
+    <span class="rotulo">Por que esta parte existe</span>
+    <p>Declarar o limite antes de perguntarem vale mais que a proteção em si.
+    Um sistema apresentado como maior do que é vira um problema no momento em
+    que alguém testa.</p>
+  </div>
+
+  <p><strong>A detecção é por expressão regular, não por modelo.</strong> Ela
+  cobre bem o formato brasileiro comum e deixa passar nome em minúscula
+  (“sou marcos”), nome estrangeiro fora do padrão, e endereço escrito de forma
+  livre. Uma detecção mais agressiva mascararia bairro e nome de imóvel, e o
+  agente perderia a informação de que precisa.</p>
+
+  <p><strong>O mapa de apelidos fica no mesmo banco que o texto.</strong> Quem
+  tem acesso ao arquivo <code>backend/data/app.db</code> reverte tudo com uma
+  consulta. Isso é proposital: a proteção é contra o terceiro que processa a
+  conversa, não contra quem tem o banco.</p>
+
+  <p><strong>Não há autenticação.</strong> O painel do corretor e o chat do lead
+  são a mesma aplicação, no mesmo endereço. Duas coisas reduzem o risco: o
+  identificador do lead deixou de ser sequencial e virou um hexadecimal de 16
+  dígitos, e a variável <code>VITE_MODO_CORRETOR=false</code> esconde as abas do
+  painel. Esconder a navegação não é autenticação, e as rotas continuam
+  existindo.</p>
+</section>
+
+<!-- ====================== 10 ====================== -->
+<section>
+  <h1><span class="numero">Seção 10</span>Os três cenários do desafio</h1>
+
+  <p>O Tech Challenge pede três cenários. Aqui está como provocar cada um e o
+  que observar, na lógica de comportamento e não de frase literal.</p>
+
+  <h2>10.1 Cenário 1: lead novo, qualificado do zero</h2>
+
+  <p><strong>Como provocar.</strong> Clique em <strong>Nova conversa</strong>.
+  Use uma das três frases de partida da seção 7.2 e conduza a conversa
+  naturalmente até o fim, respondendo às perguntas do agente.</p>
+
+  <ul class="checklist">
+    <li>A cada dado informado, uma etiqueta de “anotei” apareceu</li>
+    <li>O painel do perfil foi preenchendo campo a campo</li>
+    <li>A nota e a temperatura subiram ao longo da conversa</li>
+    <li>Cards de imóvel apareceram assim que houve informação suficiente</li>
+    <li>Os imóveis respeitaram o orçamento depois que você o informou</li>
+    <li>Ao completar o perfil, o seletor de data apareceu sozinho</li>
+    <li>Você confirmou o agendamento e ele apareceu na Agenda do painel</li>
+    <li>O lead apareceu no Dashboard com a faixa de temperatura correta</li>
+  </ul>
+
+  <p>Uma conversa completa tem de seis a oito mensagens, e consome de seis a
+  oito requisições da cota diária.</p>
+
+  <h2>10.2 Cenário 2: o lead volta, e a memória lembra</h2>
+
+  <p><strong>Como provocar.</strong> Com uma conversa em andamento, pressione
+  <strong>F5</strong> para recarregar a página. Ou feche o navegador e abra de
+  novo no mesmo endereço.</p>
+
+  <ul class="checklist">
+    <li>O histórico da conversa voltou inteiro, na ordem certa</li>
+    <li>O painel “O que já entendi” voltou <strong>preenchido</strong>, com os mesmos dados, a mesma nota e a mesma temperatura</li>
+    <li>O mesmo identificador continua na barra da conversa, e não foi criado outro lead</li>
+    <li>Ao continuar conversando, o agente não repetiu perguntas já respondidas</li>
+  </ul>
+
+  <p>O segundo teste, mais forte: continue a conversa e informe um dado que
+  contradiz o anterior. O agente deve absorver a correção e a etiqueta deve
+  dizer <strong>corrigi</strong>, não “anotei”.</p>
+
+  <div class="nota">
+    <span class="rotulo">Por que isso é difícil</span>
+    <p>O agente recebe apenas os dez turnos mais recentes. O que sustenta a
+    memória além disso é a Parte 2, que guarda o perfil separado do histórico.
+    Se tiver paciência para uma conversa longa, informe um dado no começo e
+    pergunte sobre ele vinte mensagens depois: o perfil continua correto, mesmo
+    o dado tendo saído da janela do modelo.</p>
+  </div>
+
+  <h2>10.3 Cenário 3: o lead sumiu, e o follow-up retoma</h2>
+
+  <p>Este cenário exige <strong>duas condições</strong> que não acontecem
+  sozinhas numa sessão de teste, e é onde a maioria das pessoas trava.</p>
+
+  <h3>Condição 1: consentimento</h3>
+
+  <p>O follow-up não dispara sem consentimento registrado. A caixa “Quero que a
+  imobiliária me procure” nasce <strong>desmarcada</strong> de propósito, porque
+  sob a LGPD o aceite tem que ser um ato da pessoa, e caixa pré-marcada é
+  exatamente o que a lei não admite.</p>
+
+  <p>Então, para este cenário: <strong>marque a caixa antes de mandar a primeira
+  mensagem</strong> do lead de teste.</p>
+
+  <h3>Condição 2: tempo de silêncio</h3>
+
+  <p>A cadência exige 24 horas de silêncio para a primeira tentativa, ou 4 horas
+  se a urgência do lead for alta. Ninguém numa sessão de teste está calado há um
+  dia.</p>
+
+  <p>O projeto tem um script que mexe <strong>só no relógio</strong>, recuando a
+  última mensagem do lead. Ele não inventa dado nenhum.</p>
+
+<pre><code>cd "D:\Projects\Pos\Fase 05\Tech-Challenge-FIAP-FASE5"
+
+<span class="cmt"># ver os leads disponiveis</span>
+.venv\Scripts\python.exe docs\envelhecer-lead.py --listar
+
+<span class="cmt"># envelhecer um lead especifico</span>
+.venv\Scripts\python.exe docs\envelhecer-lead.py lead-c03741594f3f4181
+
+<span class="cmt"># envelhecer mais, para provocar a segunda tentativa</span>
+.venv\Scripts\python.exe docs\envelhecer-lead.py lead-c03741594f3f4181 --horas 80</code></pre>
+
+  <p>Não precisa reiniciar o backend: a memória lê o estado do banco a cada
+  consulta.</p>
+
+  <ul class="checklist">
+    <li>O lead apareceu na seção <strong>Precisam de atenção</strong> do Dashboard</li>
+    <li>O motivo da decisão está escrito em texto, como “24h de silêncio, tentativa 1 de 3”</li>
+    <li>O botão de gerar texto produziu uma mensagem que <strong>cita o que o lead disse</strong>, e não um texto genérico</li>
+    <li>Depois de envelhecer para 80 horas, a tentativa virou “2 de 3” e o tom mudou</li>
+  </ul>
+
+  <h3>As regras de quando NÃO enviar</h3>
+
+  <p>Esta metade é a que separa follow-up de spam, e vale mostrar na
+  apresentação:</p>
+
+  <ul>
+    <li>Sem consentimento registrado, não envia</li>
+    <li>Se o lead pediu para parar, não envia nunca mais</li>
+    <li>Se o lead respondeu depois do último follow-up, o contador zera</li>
+    <li>Atingido o teto de três tentativas, encerra e devolve o lead ao corretor</li>
+    <li><strong>Fora do horário comercial, adia.</strong> O job não envia antes
+      das 9h, depois das 20h, nem aos domingos</li>
+  </ul>
+
+  <p>A cadência padrão é 24h, 72h e 168h. Para lead com urgência alta ela aperta
+  para 4h, 24h e 72h, porque quem precisa mudar em duas semanas não espera três
+  dias por uma resposta.</p>
+
+  <div class="nota">
+    <span class="rotulo">A janela adia o envio, não a constatação</span>
+    <p>A lista “Precisam de atenção” continua mostrando quem está devendo
+    resposta a qualquer hora do dia. O que o horário comercial segura é a
+    mensagem sair.</p>
+  </div>
+</section>
+
+<!-- ====================== 11 ====================== -->
+<section>
+  <h1><span class="numero">Seção 11</span>Quando algo não funciona</h1>
+
+  <table>
+    <thead><tr><th style="width:29%">Sintoma</th><th style="width:26%">Causa provável</th><th>O que fazer</th></tr></thead>
+    <tbody>
+      <tr><td><code>Port 5173 is already in use</code></td><td>Outro <code>npm run dev</code> ficou rodando</td><td>Use <code>npm run dev:3000</code>, ou encerre o processo antigo (seção 4.4)</td></tr>
+      <tr><td>Selo vermelho <strong>API offline</strong></td><td>O terminal 1 caiu ou nunca subiu</td><td>Volte ao terminal 1 e rode <code>backend\run.py</code>. O selo volta ao verde em até 10 segundos, sem recarregar</td></tr>
+      <tr><td>Toda chamada falha, mas o backend está no ar</td><td>Front numa porta fora do CORS</td><td>Use 5173 ou 3000, ou acrescente a porta em <code>CORS_ORIGINS</code></td></tr>
+      <tr><td>Selo âmbar sem você ter pedido</td><td>Chave ausente, inválida, projeto bloqueado ou cota esgotada</td><td>Rode <code>docs\verificar-chave.py</code>, que diz qual dos quatro</td></tr>
+      <tr><td><code>agente: mock</code> com <code>modo_configurado: gemini</code></td><td>A chave existe mas não funciona</td><td>Mesmo caminho acima. O campo <code>detalhe</code> traz o erro</td></tr>
+      <tr><td>Chat fica em “digitando” e não volta</td><td>Conexão travada com o Gemini</td><td>Espere até 90 segundos, que a requisição é cancelada com mensagem na tela. Ou clique em <strong>Nova conversa</strong>, que destrava o botão</td></tr>
+      <tr><td>Resposta “tive um problema técnico”</td><td>Falha no agente e também no mock</td><td>Veja o terminal 1. É o único caso em que os dois caminhos falharam</td></tr>
+      <tr><td>Nenhum imóvel aparece no chat</td><td>O sistema ainda não sabe nada do lead</td><td>Informe região, quartos ou faixa de preço. A busca só roda com pelo menos um deles</td></tr>
+      <tr><td>Imóveis param de aparecer no meio da conversa</td><td>Cota de embedding esgotada</td><td>O sistema cai para a busca lexical sozinho. Confira <code>rag.ultima_busca_ok</code> no <code>/health</code></td></tr>
+      <tr><td><code>rag.imoveis</code> é 0</td><td>A base não foi carregada</td><td>Confira se <code>shared\data\imoveis.json</code> existe, e reinicie o backend</td></tr>
+      <tr><td>“Precisam de atenção” sempre vazio</td><td>Falta consentimento, ou falta silêncio</td><td>Veja a seção 10.3. Os dois são exigidos</td></tr>
+      <tr><td>Follow-up não envia com lead elegível</td><td>Fora do horário comercial</td><td>O job não envia antes das 9h, depois das 20h nem aos domingos</td></tr>
+      <tr><td>Números do painel não batem</td><td>Banco diferente do que você imagina</td><td>Confira <code>database_url</code> no <code>/health</code></td></tr>
+      <tr><td>Quer recomeçar do zero</td><td>Banco sujo de testes anteriores</td><td>Pare o backend, apague <code>backend\data\app.db</code> e suba de novo. Ele recria tudo e repopula os 140 imóveis</td></tr>
+      <tr><td>Erro de codificação no terminal</td><td>Console do Windows em cp1252</td><td>Rode <code>chcp 65001</code> antes de subir o backend</td></tr>
+    </tbody>
+  </table>
+
+  <h2>11.1 Onde olhar primeiro</h2>
+
+  <p>Quando algo não fizer sentido, a ordem que resolve mais rápido é:</p>
+
+  <ol class="passo">
+    <li>O <strong>cabeçalho</strong> da tela, que diz se a API está no ar e quem está respondendo.</li>
+    <li>O <strong><code>/health</code></strong>, que diz qual banco, quantos imóveis e qual modelo.</li>
+    <li>O <strong>terminal 1</strong>, onde o backend imprime cada requisição e cada erro.</li>
+    <li>O <strong>console do navegador</strong> (F12), para problemas que só acontecem na tela.</li>
+  </ol>
+</section>
+
+<!-- ====================== 12 ====================== -->
+<section>
+  <h1><span class="numero">Seção 12</span>Limites conhecidos</h1>
+
+  <p>Escrito com honestidade, porque um sistema apresentado como maior do que é
+  vira um problema quando alguém testa.</p>
+
+  <h2>Não há autenticação</h2>
+  <p>Chat e painel são a mesma aplicação, no mesmo endereço. O projeto roda em
+  localhost e foi pensado para isso. Publicar em qualquer lugar acessível por
+  terceiros exige login de verdade, que está fora do escopo.</p>
+
+  <h2>A detecção de dado pessoal é por expressão regular</h2>
+  <p>Cobre e-mail, telefone, CPF e nomes declarados com inicial maiúscula. Deixa
+  passar nome em minúscula, nome estrangeiro fora do padrão e endereço escrito
+  de forma livre.</p>
+
+  <h2>O mapa de apelidos fica no mesmo banco que o texto</h2>
+  <p>A proteção é contra o terceiro que processa a conversa, não contra quem tem
+  acesso ao arquivo do banco.</p>
+
+  <h2>A cota gratuita é de 20 requisições por dia, por modelo</h2>
+  <p>Isso dá duas ou três conversas completas por dia. O sistema degrada para o
+  agente mock em vez de quebrar, e avisa na tela, mas a IA de verdade tem esse
+  teto.</p>
+
+  <h2>O banco é um SQLite de arquivo único</h2>
+  <p>Suficiente para uma demonstração de um usuário, e tratado com WAL e
+  transações curtas. Não foi pensado para vários corretores escrevendo ao mesmo
+  tempo.</p>
+
+  <h2>A extração é por regra, não por modelo</h2>
+  <p>Ela é rápida, previsível e não gasta cota, e por isso mesmo tem limites
+  conhecidos: entende as vinte regiões do catálogo, e não entende um bairro que
+  não existe na base.</p>
+
+  <h2>O catálogo tem 140 imóveis gerados sinteticamente</h2>
+  <p>Eles são consistentes, com preço por metro quadrado coerente com o bairro e
+  rentabilidade calculada, mas não são anúncios reais.</p>
+
+  <h2>O sistema não fecha negócio</h2>
+  <p>Ele qualifica e agenda. Falar de preço final, condição de pagamento e
+  documentação é trabalho do corretor, e o agente foi instruído a devolver esses
+  assuntos para a pessoa certa.</p>
+</section>
